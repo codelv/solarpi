@@ -1,0 +1,12 @@
+[Unit]
+Description=SolarPI web server
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python /opt/solar-pi/app.py
+Type=notify
+Restart=always
+
+[Install]
+WantedBy=default.target
+RequiredBy=network.target
