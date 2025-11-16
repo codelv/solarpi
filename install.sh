@@ -1,2 +1,2 @@
-scp -r ../solar-pi/ raspberrypi.lan:/home/jrm/
-#cp -r ../solar-pi sftp://jrm@raspberrypi.lan:22/home/jrm/
+scp ../solar-pi/*.py raspberrypi.lan:/home/jrm/solar-pi
+#scp -r ../solar-pi raspberrypi.lan:/home/jrm/

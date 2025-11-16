@@ -4,8 +4,9 @@ import asyncio
 import logging
 import aiosqlite
 import dataclasses
-from typing import ClassVar
+from typing import ClassVar, Optional
 from time import time
+from logging.handlers import RotatingFileHandler
 
 from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic
 from aiohttp import web
@@ -24,10 +25,13 @@ SOLAR_CHARGER_DATA_SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 SOLAR_CHARGER_DATA_DESCRIPTOR_UUID = "00002902-0000-1000-8000-00805f9b34fb"
 SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 SOLAR_CHARGER_HOME_DATA = bytearray([0x01, 0x03, 0x01, 0x01, 0x00, 0x13, 0x54, 0x3B])
-
+BATTERY_MONITOR_REFRESH = bytearray([0xBB, 0x9A, 0xA9, 0x0C, 0xEE])
 
 DB = None
+BT_LOCK = asyncio.Lock()
+# 54:14:A7:53:14:E9 BTG964
 BATTERY_MONITOR_DEVICE = None
+# C8:47:80:0D:2C:6A ChargePro
 SOLAR_CHARGER_DEVICE = None
 
 
@@ -36,6 +40,8 @@ class State:
     timestamp: int = 0
     battery_voltage: float = 0
     battery_current: float = 0
+    battery_is_charging: int = 0
+    battery_is_temp_in_f: ClassVar[bool] = True
     battery_ah: float = 0
     battery_temp: float = 0
     battery_total_charge_energy: float = 0
@@ -46,12 +52,16 @@ class State:
     charger_current: float = 0
     charger_temp: float = 0
     charger_total_energy: float = 0
+    charger_status: int = 0
+    room_temp: float = 0
 
-    _instance = ClassVar["State"]
+    _instance: ClassVar["State"] = None
 
     @classmethod
     def instance(cls):
-        return cls._instance or cls()
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     def columns(self):
         return tuple(f.name for f in dataclasses.fields(self.__class__))
@@ -60,25 +70,23 @@ class State:
         return dataclasses.astuple(self)
 
     def update_timestamp(self):
-        # Used to
         self.timestamp = int(time())
+        log.debug(f"State updated {self}")
 
     def insert_values_sql(self):
-        return f"INSERT INTO solar VALUES {self.values};"
+        return f"INSERT INTO solar VALUES {self.values()};"
 
     @classmethod
     def create_table_sql(cls):
         columns = []
         for i, f in enumerate(dataclasses.fields(cls)):
             column = f"{f.name}"
-            if isinstance(f.type, float):
+            if f.type is float:
                 column += " REAL"
-            elif isinstance(f.type, int):
+            elif f.type is int:
                 column += " INTEGER"
-            elif isinstance(f.type, str):
+            elif f.type is str:
                 column += " TEXT"
-            elif isinstance(f.type, datetime):
-                column += " INTEGER" # Store as timestamp
             if i == 0:
                 column += " PRIMARY KEY"
             column += " NOT NULL"
@@ -88,7 +96,7 @@ class State:
 
 class BatteryMonitor:
 
-    @classmethod
+    @staticmethod
     def is_cmd(c: int):
         return c >= 0xa0
 
@@ -151,7 +159,9 @@ async def handle(request):
 
 @routes.get("/scan/")
 async def scan(request):
-    result = await BleakScanner.discover(return_adv=True)
+    global BT_LOCK
+    async with BT_LOCK:
+        result = await BleakScanner.discover(return_adv=True)
     return web.Response(text=str(result))
 
 
@@ -159,9 +169,10 @@ async def scan(request):
 async def model(request):
     address = request.match_info["address"]
     print(f"Connecting to '{address}'")
-    async with BleakClient(address) as client:
-        model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
-        return web.Response(text="Model Number: {0}".format("".join(map(chr, model_number))))
+    async with BT_LOCK:
+        async with BleakClient(address) as client:
+            model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+    return web.Response(text="Model Number: {0}".format("".join(map(chr, model_number))))
 
 
 async def scan_devices():
@@ -174,19 +185,23 @@ async def scan_devices():
             global SOLAR_CHARGER_DEVICE
             if BATTERY_MONITOR_DEVICE is None or SOLAR_CHARGER_DEVICE is None:
                 log.info("Scanning devices...")
-                result = await BleakScanner.discover(return_adv=True)
+                async with BT_LOCK:
+                    result = await BleakScanner.discover(return_adv=True)
                 for device, data in result.values():
                     log.info(f"  - {device} {data}")
 
                 for device, data in result.values():
                     if BATTERY_MONITOR_DEVICE is None and (
-                        BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids
-                        or device.name == "BTG964"
+                        #BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids
+                        device.name == "BTG964"
                     ):
                         BATTERY_MONITOR_DEVICE = device
                         log.info(f"Found battery monitor: {device}")
-                    elif SOLAR_CHARGER_DEVICE is None and SOLAR_CHARGER_DATA_SERVICE_UUID in data.service_uuids:
-                        SOLAR_CHARGER_DEVICE = device.address
+                    elif SOLAR_CHARGER_DEVICE is None and (
+                        # SOLAR_CHARGER_DATA_SERVICE_UUID in data.service_uuids
+                        device.name == "ChargePro"
+                    ):
+                        SOLAR_CHARGER_DEVICE = device
                         log.info(f"Found solar charger: {device}")
         except Exception as e:
             log.error("Error in scan_devices:")
@@ -201,21 +216,39 @@ def decode_battery_monitor_data(packet: bytearray):
     changed = False
     for c in packet[1:-1]:
         if BatteryMonitor.is_cmd(c) and data:
+            #log.debug(f"Decode '{hex(c)}' data {data.hex()}")
             if c == BatteryMonitor.VOLTAGE:
-                state.battery_voltage = struct.unpack("<h", data) / 100
+                state.battery_voltage = int(data.hex()) / 100
                 changed = True
             elif c == BatteryMonitor.CURRENT:
-                state.battery_current = struct.unpack("<h", data) / 100
+                state.battery_current = int(data.hex()) / 100
                 changed = True
             elif c == BatteryMonitor.TOTAL_CHARGE_ENERGY:
-                state.battery_total_charge_energy = struct.unpack("<h", data) / 100
+                state.battery_total_charge_energy = int(data.hex()) / 100
                 changed = True
-            elif BatteryMonitor.TOTAL_DISCHARGE_ENERGY:
-                state.battery_total_discharge_energy = struct.unpack("<h", data) / 100
+            elif c == BatteryMonitor.TOTAL_DISCHARGE_ENERGY:
+                state.battery_total_discharge_energy = int(data.hex()) / 100
                 changed = True
-            data  = bytearray()
+            elif c == BatteryMonitor.REMAINING_AH:
+                state.battery_ah = int(data.hex()) / 1000
+                changed = True
+            elif c == BatteryMonitor.IS_CHARGING:
+                state.battery_is_charging = int(data.hex()) == 1
+                changed = True
+            elif c == BatteryMonitor.IS_TEMP_IN_F:
+                state.battery_is_temp_in_f = int(data.hex()) == 1
+                changed = True
+            elif c == BatteryMonitor.TEMP_DATA:
+                # Convert to C
+                if state.battery_is_temp_in_f:
+                    t = round((int(data.hex()) - 32 - 5) * 5.0 / 9.0, 1)
+                else:
+                    t = int(data.hex()) - 100
+                state.room_temp = t
+                changed = True
+            data = bytearray()
         else:
-            data  += c
+            data.append(c)
 
     if changed:
         state.update_timestamp()
@@ -223,85 +256,123 @@ def decode_battery_monitor_data(packet: bytearray):
 
 async def monitor_battery():
     global BATTERY_MONITOR_DEVICE
+    client: Optional[BleakClient] = None
     while True:
         try:
             if BATTERY_MONITOR_DEVICE is None:
                 await asyncio.sleep(1)
                 continue
             log.info(f"Connecting to battery monitor: {BATTERY_MONITOR_DEVICE}")
-            async with BleakClient(BATTERY_MONITOR_DEVICE, timeout=30) as client:
-                model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
-                log.info(f"Battery monitor model: {model_number}")
+            client = BleakClient(BATTERY_MONITOR_DEVICE, timeout=30)
+            async with BT_LOCK:
+                await client.connect()
 
-                read_buffer = bytearray()
+            model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+            log.info(f"Battery monitor model: {model_number}")
 
-                def on_battery_monitor_data(sender: BleakGATTCharacteristic, data: bytearray):
-                    log.debug(f" battery monitor data: {sender}: {data}")
-                    nonlocal read_buffer
-                    read_buffer += data
-                    while read_buffer:
-                        start_live = read_buffer.find(BatteryMonitor.LIVE_DATA_START)
-                        start_rec = read_buffer.find(BatteryMonitor.RECORDED_DATA_START)
-                        if start_live >= 0 and start_rec >= 0:
-                            start = min(start_live, start_rec)
-                        elif start_live >= 0:
-                            start = start_live
-                        else:
-                            start = start_rec
-                        end = read_buffer.find(BatteryMonitor.DATA_END)
-                        if (end >= 0 and end <= start):
-                            read_buffer = read_buffer[end:] # Discard extra
-                            break
-                        elif (end < 0 and start < 0):
-                            break # Need to read more
-                        assert start >= 0 and end > start
+            read_buffer = bytearray()
 
-                        packet = read_buffer[start:end]
-                        read_buffer = read_buffer[end:]
-                        decode_battery_monitor_data(packet)
+            def on_battery_monitor_data(sender: BleakGATTCharacteristic, data: bytearray):
+                log.debug(f" battery monitor data: {sender}: {data.hex()}")
+                nonlocal read_buffer
+                read_buffer += data
+                while read_buffer:
+                    start_live = read_buffer.find(BatteryMonitor.LIVE_DATA_START)
+                    start_rec = read_buffer.find(BatteryMonitor.RECORDED_DATA_START)
+                    if start_live >= 0 and start_rec >= 0:
+                        start = min(start_live, start_rec)
+                    elif start_live >= 0:
+                        start = start_live
+                    else:
+                        start = start_rec
+                    end = read_buffer.find(BatteryMonitor.DATA_END)
+                    if (end >= 0 and end <= start):
+                        read_buffer = read_buffer[end+1:] # Discard extra
+                        break
+                    elif (end < 0 or start < 0):
+                        break # Need to read more
+                    assert start >= 0 and end > start
 
-                    if len(read_buffer) > 4095:
-                        log.warning("battery monitor read buffer discarded")
-                        read_buffer = bytearray()
+                    packet = read_buffer[start:end]
+                    read_buffer = read_buffer[end+1:]
+                    decode_battery_monitor_data(packet)
 
+                if len(read_buffer) > 512:
+                    log.warning("battery monitor read buffer discarded")
+                    read_buffer = bytearray()
+            async with BT_LOCK:
                 await client.start_notify(BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data)
-                while True:
-                    await asyncio.sleep(1000)
+                await client.write_gatt_char(BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID, BATTERY_MONITOR_REFRESH)
+            while True:
+                await asyncio.sleep(60)
         except Exception as e:
             log.error("Error in monitor_battery:")
             log.exception(e)
+            if client is not None:
+                async with BT_LOCK:
+                    await client.disconnect()
+                client = None
             BATTERY_MONITOR_DEVICE = None
             await asyncio.sleep(1)
 
 
+def decode_solar_charger_data(packet):
+    state = State.instance()
+    if len(packet) == 43 and packet[0] == 0x01 and packet[1] == 0x03 and packet[2] == 0x26:
+        # Home data
+        state.charger_voltage = int(packet[5:7].hex(), base=16) / 10
+        state.charger_current = int(packet[7:9].hex(), base=16) / 100
+        state.charger_temp = packet[11]
+        t = packet[12]
+        state.battery_temp = t if t < 128 else (128-t)
+        state.solar_panel_voltage = int(packet[19:21].hex(), base=16) / 10
+        # today_peak_power = int(packet[21:23].hex(), base=16) # This can be calculated
+        # today_charge_energy = int(packet[23:25].hex(), base=16) # These are wrong anyways
+        state.charger_total_energy = int(packet[33:37].hex(), base=16)
+        state.charger_status = packet[28]
+        state.update_timestamp()
+    else:
+        pass
+
+
+
+
 async def monitor_charger():
     global SOLAR_CHARGER_DEVICE
+    client: Optional[BleakClient] = None
     while True:
         try:
             if SOLAR_CHARGER_DEVICE is None:
                 await asyncio.sleep(1)
                 continue
             log.info(f"Connecting to solar charger: {SOLAR_CHARGER_DEVICE}")
-            async with BleakClient(SOLAR_CHARGER_DEVICE, timeout=30) as client:
-                model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
-                log.info(f"Solar charger model: {model_number}")
-                pending_actions = []
-
-                def callback(sender: BleakGATTCharacteristic, data: bytearray):
-                    log.debug(f" solar charger data: {sender}: {data}")
-                    pending_actions.append(SOLAR_CHARGER_HOME_DATA)
+            client = BleakClient(SOLAR_CHARGER_DEVICE, timeout=30)
+            async with BT_LOCK:
+                await client.connect()
+            model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+            log.info(f"Solar charger model: {model_number}")
+            last_sent = None
+            def callback(sender: BleakGATTCharacteristic, data: bytearray):
+                log.debug(f" solar charger data: {sender}: {data.hex()}")
+                decode_solar_charger_data(data)
+                last_sent = None
+            async with BT_LOCK:
                 await client.start_notify(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, callback)
-
-                while True:
-                    if pending_actions:
-                        data = pending_actions.pop()
-                        await client.write_gatt_char(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, data)
-                    await asyncio.sleep(1)
-
-
+            while True:
+                now = time()
+                if last_sent is None or (now - last_sent) > 5:
+                    # If we get no response or a reply
+                    last_sent = now
+                    async with BT_LOCK:
+                        await client.write_gatt_char(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, SOLAR_CHARGER_HOME_DATA)
+                await asyncio.sleep(1)
         except Exception as e:
             log.error("Error in monitor_charger:")
             log.exception(e)
+            if client is not None:
+                async with BT_LOCK:
+                    await client.disconnect()
+                client = None
             SOLAR_CHARGER_DEVICE = None # Force re-scan
             await asyncio.sleep(1)
 
@@ -314,10 +385,13 @@ async def snapshot_task():
     state = State.instance()
     while True:
         try:
-            if DB and SOLAR_CHARGER_DEVICE and BATTERY_MONITOR_DEVICE:
+            if DB and (SOLAR_CHARGER_DEVICE or BATTERY_MONITOR_DEVICE):
                 if state.timestamp != last_timestamp:
                     last_timestamp = state.timestamp
-                    await DB.execute(state.insert_values_sql())
+                    cmd = state.insert_values_sql()
+                    log.debug(f"SQL: {cmd}")
+                    await DB.execute(cmd)
+                    await DB.commit()
         except Exception as e:
             log.error("Error in snapshot_task:")
             log.exception(e)
@@ -326,9 +400,14 @@ async def snapshot_task():
 
 async def init_db():
     global DB
+    log.info("Connecting to db...")
     DB = await aiosqlite.connect("solarpi.db")
-    await DB.execute(State.create_table_sql())
+    log.info("Creating table...")
+    cmd = State.create_table_sql()
+    log.debug(f"SQL: {cmd}")
+    await DB.execute(cmd)
     await DB.commit()
+    log.info("Db initalized!")
 
 async def fini_db():
     global DB
@@ -359,7 +438,7 @@ def main():
         level=logging.WARNING,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            logging.FileHandler("solarpi.log"),
+            RotatingFileHandler("solarpi.log", maxBytes=5*1024*1000, backupCount=3),
             logging.StreamHandler(sys.stdout)
         ]
     )
