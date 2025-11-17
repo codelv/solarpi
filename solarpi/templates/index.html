@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SolarPI</title>
+    <link href="static/bootstrap.min.css" rel="stylesheet"></link>
+  </head>
+  <body>
+    <h1>Hello, world!</h1>
+
+    <canvas id="chart"></canvas>
+
+    <script src="static/bootstrap.bundle.min.js"></script>
+    <script src="static/chart.js"></script>
+    <script src="static/moment.min.js"></script>
+    <script src="static/chartjs-adapter-moment.js"></script>
+    <script>
+    const ctx = document.getElementById('chart');
+    const chart = new Chart(ctx, {{chart_data|safe}} );
+    </script>
+  </body>
+</html>

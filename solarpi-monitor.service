@@ -1,0 +1,13 @@
+[Unit]
+Description=SolarPI data monitor
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python -m solarpi.monitor
+WorkingDirectory=/opt/solar-pi/
+Type=simple
+Restart=always
+
+[Install]
+WantedBy=default.target
+RequiredBy=network.target

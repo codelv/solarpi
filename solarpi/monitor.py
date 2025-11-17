@@ -4,16 +4,16 @@ import asyncio
 import logging
 import aiosqlite
 import dataclasses
+import subprocess
 from typing import ClassVar, Optional
 from time import time
 from logging.handlers import RotatingFileHandler
 
 from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic
-from aiohttp import web
+
+from .db import State
 
 log = logging.getLogger("solarpi")
-
-routes = web.RouteTableDef()
 
 DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb"
 DEVICE_MODEL_CHARACTERISTIC_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
@@ -33,65 +33,6 @@ BT_LOCK = asyncio.Lock()
 BATTERY_MONITOR_DEVICE = None
 # C8:47:80:0D:2C:6A ChargePro
 SOLAR_CHARGER_DEVICE = None
-
-
-@dataclasses.dataclass
-class State:
-    timestamp: int = 0
-    battery_voltage: float = 0
-    battery_current: float = 0
-    battery_is_charging: int = 0
-    battery_is_temp_in_f: ClassVar[bool] = True
-    battery_ah: float = 0
-    battery_temp: float = 0
-    battery_total_charge_energy: float = 0
-    battery_total_discharge_energy: float = 0
-
-    solar_panel_voltage: float = 0
-    charger_voltage: float = 0
-    charger_current: float = 0
-    charger_temp: float = 0
-    charger_total_energy: float = 0
-    charger_status: int = 0
-    room_temp: float = 0
-
-    _instance: ClassVar["State"] = None
-
-    @classmethod
-    def instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def columns(self):
-        return tuple(f.name for f in dataclasses.fields(self.__class__))
-
-    def values(self):
-        return dataclasses.astuple(self)
-
-    def update_timestamp(self):
-        self.timestamp = int(time())
-        log.debug(f"State updated {self}")
-
-    def insert_values_sql(self):
-        return f"INSERT INTO solar VALUES {self.values()};"
-
-    @classmethod
-    def create_table_sql(cls):
-        columns = []
-        for i, f in enumerate(dataclasses.fields(cls)):
-            column = f"{f.name}"
-            if f.type is float:
-                column += " REAL"
-            elif f.type is int:
-                column += " INTEGER"
-            elif f.type is str:
-                column += " TEXT"
-            if i == 0:
-                column += " PRIMARY KEY"
-            column += " NOT NULL"
-            columns.append(column)
-        return f"CREATE TABLE IF NOT EXISTS solar({', '.join(columns)});"
 
 
 class BatteryMonitor:
@@ -144,69 +85,73 @@ class BatteryMonitor:
     IS_TEMP_IN_F = 0xf7
 
 
-@routes.get("/")
-async def handle(request):
-    template = """
-    <html>
-        <head>SolarPI</head>
-        <body>
-            <a href="/scan/">Scan</a>
-        </body>
-    </html>
-    """
-    return web.Response(text=template, content_type="text/html")
+async def reset_bluetooth(timeout: int = 1):
+    log.warning("Resetting bluetooth")
+    log.debug(bluetooth_power(False))
+    await asyncio.sleep(timeout)
+    log.debug(bluetooth_power(True))
 
 
-@routes.get("/scan/")
-async def scan(request):
-    global BT_LOCK
-    async with BT_LOCK:
-        result = await BleakScanner.discover(return_adv=True)
-    return web.Response(text=str(result))
-
-
-@routes.get("/model/{address}/")
-async def model(request):
-    address = request.match_info["address"]
-    print(f"Connecting to '{address}'")
-    async with BT_LOCK:
-        async with BleakClient(address) as client:
-            model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
-    return web.Response(text="Model Number: {0}".format("".join(map(chr, model_number))))
+def bluetooth_power(on: bool):
+    cmd = "bluetoothctl power"
+    if on:
+        cmd += " on"
+    else:
+        cmd += " off"
+    log.debug(cmd)
+    return subprocess.check_output(cmd.split(" "))
 
 
 async def scan_devices():
     """ Scan for a battery monitor and charger
 
     """
+    global BATTERY_MONITOR_DEVICE
+    global SOLAR_CHARGER_DEVICE
+    scan_attempts = 0
     while True:
         try:
-            global BATTERY_MONITOR_DEVICE
-            global SOLAR_CHARGER_DEVICE
-            if BATTERY_MONITOR_DEVICE is None or SOLAR_CHARGER_DEVICE is None:
-                log.info("Scanning devices...")
-                async with BT_LOCK:
-                    result = await BleakScanner.discover(return_adv=True)
-                for device, data in result.values():
-                    log.info(f"  - {device} {data}")
+            if BATTERY_MONITOR_DEVICE and SOLAR_CHARGER_DEVICE:
+                continue # Both are connected ok. Nothing to do!
 
-                for device, data in result.values():
-                    if BATTERY_MONITOR_DEVICE is None and (
-                        #BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids
-                        device.name == "BTG964"
-                    ):
-                        BATTERY_MONITOR_DEVICE = device
-                        log.info(f"Found battery monitor: {device}")
-                    elif SOLAR_CHARGER_DEVICE is None and (
-                        # SOLAR_CHARGER_DATA_SERVICE_UUID in data.service_uuids
-                        device.name == "ChargePro"
-                    ):
-                        SOLAR_CHARGER_DEVICE = device
-                        log.info(f"Found solar charger: {device}")
+            log.info("Scanning devices...")
+            async with BT_LOCK:
+                result = await BleakScanner.discover(return_adv=True)
+            for device, data in result.values():
+                log.info(f"  - {device} {data}")
+
+            for device, data in result.values():
+                if BATTERY_MONITOR_DEVICE is None and (
+                    #BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids
+                    device.name == "BTG964"
+                ):
+                    BATTERY_MONITOR_DEVICE = device
+                    log.info(f"Found battery monitor: {device}")
+                elif SOLAR_CHARGER_DEVICE is None and (
+                    # SOLAR_CHARGER_DATA_SERVICE_UUID in data.service_uuids
+                    device.name == "ChargePro"
+                ):
+                    SOLAR_CHARGER_DEVICE = device
+                    log.info(f"Found solar charger: {device}")
+
+            if BATTERY_MONITOR_DEVICE and SOLAR_CHARGER_DEVICE:
+                scan_attempts = 0
+                log.info("Both devices found")
+                continue
+
+            # If there is a lot of failed attempts try resetting bluetooth
+            # as it seems to get jacked up and cannot recover any other way
+            scan_attempts += 1
+            log.error(f"Failed scan attempts {scan_attempts}")
+            if scan_attempts >= 10:
+                await reset_bluetooth(5)
+                scan_attempts = 0
+
         except Exception as e:
             log.error("Error in scan_devices:")
             log.exception(e)
-        await asyncio.sleep(10)
+        finally:
+            await asyncio.sleep(10)
 
 
 def decode_battery_monitor_data(packet: bytearray):
@@ -271,6 +216,7 @@ async def monitor_battery():
             log.info(f"Battery monitor model: {model_number}")
 
             read_buffer = bytearray()
+            last_sent = None
 
             def on_battery_monitor_data(sender: BleakGATTCharacteristic, data: bytearray):
                 log.debug(f" battery monitor data: {sender}: {data.hex()}")
@@ -300,11 +246,20 @@ async def monitor_battery():
                 if len(read_buffer) > 512:
                     log.warning("battery monitor read buffer discarded")
                     read_buffer = bytearray()
+                last_sent = None
+
             async with BT_LOCK:
                 await client.start_notify(BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data)
-                await client.write_gatt_char(BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID, BATTERY_MONITOR_REFRESH)
+
+            # Periodically poll to make sure it's not just sitting with no data coming in
             while True:
-                await asyncio.sleep(60)
+                now = time()
+                if last_sent is None or (now - last_sent) > 60:
+                    last_sent = now
+                    async with BT_LOCK:
+                        await client.write_gatt_char(BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID, BATTERY_MONITOR_REFRESH)
+                await asyncio.sleep(1)
+
         except Exception as e:
             log.error("Error in monitor_battery:")
             log.exception(e)
@@ -335,8 +290,6 @@ def decode_solar_charger_data(packet):
         pass
 
 
-
-
 async def monitor_charger():
     global SOLAR_CHARGER_DEVICE
     client: Optional[BleakClient] = None
@@ -358,6 +311,8 @@ async def monitor_charger():
                 last_sent = None
             async with BT_LOCK:
                 await client.start_notify(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, callback)
+
+            # Periodically poll to make sure it's not just sitting with no data coming in
             while True:
                 now = time()
                 if last_sent is None or (now - last_sent) > 5:
@@ -409,6 +364,7 @@ async def init_db():
     await DB.commit()
     log.info("Db initalized!")
 
+
 async def fini_db():
     global DB
     if DB is not None:
@@ -416,37 +372,31 @@ async def fini_db():
         DB = None
 
 
-async def on_startup(app):
-    await init_db()
-    asyncio.create_task(scan_devices())
-    asyncio.create_task(monitor_battery())
-    asyncio.create_task(monitor_charger())
-    asyncio.create_task(snapshot_task())
-
-
-async def on_cleanup(app):
-    await fini_db()
-
-
-app = web.Application()
-app.add_routes(routes)
-app.on_startup.append(on_startup)
-app.on_cleanup.append(on_cleanup)
-
-def main():
+async def main():
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            RotatingFileHandler("solarpi.log", maxBytes=5*1024*1000, backupCount=3),
+            RotatingFileHandler("solarpi-monitor.log", maxBytes=5*1024*1000, backupCount=3),
             logging.StreamHandler(sys.stdout)
         ]
     )
     log.setLevel(logging.DEBUG)
-    web.run_app(app, port=5000)
+    try:
+        await init_db()
+        await asyncio.gather(
+            scan_devices(),
+            monitor_battery(),
+            monitor_charger(),
+            snapshot_task()
+        )
+    finally:
+        await fini_db()
+
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
+
 
 
 
