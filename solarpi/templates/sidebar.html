@@ -1,0 +1,29 @@
+<div class="bg-white shadow-sm border rounded p-3">
+    <h5>Solar</h5>
+    <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between">
+            <div class="text-primary fw-light">{{state.solar_panel_voltage}} V</div>
+            <div class="text-success fw-light">{{state.solar_panel_current}} A</div>
+        </li>
+    </ul>
+    <h5>Charger</h5>
+    <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between">
+            <div class="text-primary fw-light">{{state.charger_voltage}} V</div>
+            <div class="text-success fw-light">{{state.charger_current}} A</div>
+        </li>
+        <li class="list-group-item">Temp: {{state.charger_temp}} °C</li>
+        <li class="list-group-item"><small class="text-body-tertiary">Total Energy Output</small> {{ "%.3f"|format(state.charger_total_energy / 1000) }} kWh</li>
+    </ul>
+    <h5>Battery</h5>
+    <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between">
+            <div class="text-primary fw-light">{{state.battery_voltage}} V</div>
+            <div class="{% if state.battery_is_charging %}text-success{% else %}text-danger{% endif %} fw-light">{{state.battery_current}} A</div>
+        </li>
+        <li class="list-group-item">SOC: {{state.battery_percent}}% ({{state.battery_ah}} Ah)</li>
+        <li class="list-group-item">Temp: {{state.battery_temp}} °C</li>
+        <li class="list-group-item"><small class="text-body-tertiary">Total Charge Energy</small> {{ "%.3f"|format(state.battery_total_charge_energy/1000) }} kWh</li>
+        <li class="list-group-item"><small class="text-body-tertiary">Total Discharge Energy</small> {{ "%.3f"|format(state.battery_total_discharge_energy/1000) }} kWh</li>
+    </ul>
+</div>

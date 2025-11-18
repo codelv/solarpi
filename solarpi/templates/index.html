@@ -6,18 +6,128 @@
     <title>SolarPI</title>
     <link href="static/bootstrap.min.css" rel="stylesheet"></link>
   </head>
-  <body>
-    <h1>Hello, world!</h1>
-
-    <canvas id="chart"></canvas>
-
+  <body class="bg-body-tertiary">
+    <nav class="navbar">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">SolarPI</a>
+            <form method="GET" accept-charset="utf-8" class="d-flex">
+                <input name="d" class="form-control" type="date" value="{{selected_date}}" onchange="this.form.submit()"/>
+            </form>
+        </div>
+    </nav>
+    <div class="main-content">
+        <div class="row w-100 mt-2 ">
+            <div class="col-2" id="sidebar">
+                {% include "sidebar.html" %}
+            </div>
+            <div class="col-10">
+                <div class="bg-white shadow-sm border rounded p-3">
+                    <ul class="nav nav-underline mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="power-tab" data-bs-toggle="pill" data-bs-target="#power-tab-content" type="button" role="tab" aria-controls="power-tab-content" aria-selected="true">
+                                Power Graphs
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="voltages-tab" data-bs-toggle="pill" data-bs-target="#voltages-tab-content" type="button" role="tab" aria-controls="voltages-tab-content" aria-selected="false">
+                                Voltage & Current Graphs
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="soc-tab" data-bs-toggle="pill" data-bs-target="#soc-tab-content" type="button" role="tab" aria-controls="soc-tab-content" aria-selected="false">
+                                Battery Graphs
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="temp-tab" data-bs-toggle="pill" data-bs-target="#temp-tab-content" type="button" role="tab" aria-controls="temp-tab-content" aria-selected="false">
+                                Temperature Graphs
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="energy-tab" data-bs-toggle="pill" data-bs-target="#energy-tab-content" type="button" role="tab" aria-controls="energy-tab-content" aria-selected="false">
+                                Energy Production Graphs
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="power-tab-content" role="tabpanel" aria-labelledby="power-tab" tabindex="0">
+                            <canvas id="power-chart"></canvas>
+                        </div>
+                        <div class="tab-pane fade" id="voltages-tab-content" role="tabpanel" aria-labelledby="voltages-tab" tabindex="0">
+                            <canvas id="voltages-chart"></canvas>
+                        </div>
+                        <div class="tab-pane fade" id="temp-tab-content" role="tabpanel" aria-labelledby="temp-tab" tabindex="0">
+                            <canvas id="temp-chart"></canvas>
+                        </div>
+                        <div class="tab-pane fade" id="soc-tab-content" role="tabpanel" aria-labelledby="soc-tab" tabindex="0">
+                            <canvas id="soc-chart"></canvas>
+                        </div>
+                        <div class="tab-pane fade" id="energy-tab-content" role="tabpanel" aria-labelledby="energy-tab" tabindex="0">
+                            <canvas id="energy-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     <script src="static/bootstrap.bundle.min.js"></script>
     <script src="static/chart.js"></script>
     <script src="static/moment.min.js"></script>
     <script src="static/chartjs-adapter-moment.js"></script>
     <script>
-    const ctx = document.getElementById('chart');
-    const chart = new Chart(ctx, {{chart_data|safe}} );
+        const charts = {
+            power: {
+                chart: null,
+                data: {{power_chart|safe}},
+            },
+            voltages: {
+                chart: null,
+                data: {{voltages_chart|safe}},
+            },
+            soc: {
+                chart: null,
+                data: {{soc_chart|safe}},
+            },
+            temp: {
+                chart: null,
+                data: {{temp_chart|safe}},
+            },
+            energy: {
+                chart: null,
+                data: {{energy_chart|safe}},
+            },
+        };
+        for (let key in charts) {
+            document.getElementById(`${key}-tab`).addEventListener('shown.bs.tab', event => {
+                if (!charts[key].chart) {
+                    const ctx = document.getElementById(`${key}-chart`);
+                    charts[key].chart = new Chart(ctx, charts[key].data);
+                }
+            });
+        }
+        // Load first chart
+        charts.power.chart = new Chart(document.getElementById(`power-chart`),  charts.power.data);
+
+        const sidebar = document.getElementById('sidebar');
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function updateSidebar() {
+            while (true) {
+                try {
+                    const response = await fetch("/api/sidebar/", {method: "get"});
+                    if (!response.ok) {
+                        throw new Error(`Response status: ${response.status}`);
+                    }
+                    sidebar.innerHTML = await response.text();
+                } catch (error) {
+                    console.log(error);
+                }
+                await sleep(1000);
+            }
+        }
+        setTimeout(updateSidebar, 1000);
     </script>
   </body>
 </html>
