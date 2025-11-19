@@ -106,17 +106,31 @@ async def sidebar(request: web.Request):
 async def index(request: web.Request):
     template = env.get_template("index.html")
 
+    d = datetime.now()
     try:
         if date_str := request.query.get("d", ''):
-            d = datetime.strptime(date_str, "%Y-%m-%d").date()
-        else:
-            d = datetime.now().date()
+            day = datetime.strptime(date_str, "%Y-%m-%d").date()
+            d = datetime.combine(day, d.time())
     except Exception as e:
         log.warning(f"Invalid date query: {e}")
-        d = datetime.now().date()
 
-    start_of_day = datetime.combine(d, time(0, 0)).timestamp()
-    end_of_day = datetime.combine(d, time(23, 59, 59)).timestamp()
+    p = None
+    try:
+        if peroid_str := request.query.get("p", ''):
+            p = int(peroid_str)
+            assert p in (1, 3, 6, 12, 24)
+    except Exception as e:
+        log.warning(f"Invalid time peroid: {e}")
+
+    if p is None:
+        start_timestamp = datetime.combine(d.date(), time(0, 0)).timestamp()
+        end_timestamp = datetime.combine(d.date(), time(23, 59, 59)).timestamp()
+
+    else:
+        start_timestamp = (d - timedelta(hours=p)).timestamp()
+        end_timestamp = d.timestamp()
+
+
     timestamps = []
     battery_voltage = []
     battery_current = []
@@ -228,7 +242,7 @@ async def index(request: web.Request):
 
     #data = []
     state: Optional[State] = None
-    async with DB.execute("SELECT * FROM solar WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC", (start_of_day, end_of_day)) as cursor:
+    async with DB.execute("SELECT * FROM solar WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC", (start_timestamp, end_timestamp)) as cursor:
         async for row in cursor:
             state = State(*row)
             timestamps.append(state.timestamp*1000)
@@ -338,14 +352,15 @@ async def index(request: web.Request):
         }
     }
 
-    energy_chart = await load_energy_chart(d)
+    energy_chart = await load_energy_chart(d.date())
     content = template.render(
         power_chart=json.dumps(power_chart),
         voltages_chart=json.dumps(voltages_chart),
         soc_chart=json.dumps(soc_chart),
         temp_chart=json.dumps(temp_chart),
         energy_chart=json.dumps(energy_chart),
-        selected_date=d,
+        selected_peroid=p,
+        selected_date=d.date(),
         state=state or State()
     )
     return web.Response(text=content, content_type="text/html")

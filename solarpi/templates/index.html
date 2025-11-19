@@ -5,22 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>SolarPI</title>
     <link href="static/bootstrap.min.css" rel="stylesheet"></link>
+    <style>
+        .chart-tab {
+            min-height: 80vh;
+        }
+    </style>
   </head>
   <body class="bg-body-tertiary">
     <nav class="navbar">
         <div class="container-fluid">
             <a class="navbar-brand" href="#">SolarPI</a>
             <form method="GET" accept-charset="utf-8" class="d-flex">
+                <select name="p" class="form-select me-2"  onchange="this.form.submit()"/>
+                    <option value="" {% if not selected_peroid %}selected{% endif %}>Day</option>
+                    <option value="24" {% if selected_peroid == 24 %}selected{% endif %}>24 hrs</option>
+                    <option value="12" {% if selected_peroid == 12 %}selected{% endif %}>12 hrs</option>
+                    <option value="6" {% if selected_peroid == 6 %}selected{% endif %}>6 hrs</option>
+                    <option value="3" {% if selected_peroid == 3 %}selected{% endif %}>3 hrs</option>
+                    <option value="1" {% if selected_peroid == 1 %}selected{% endif %}>1 hr</option>
+                </select>
                 <input name="d" class="form-control" type="date" value="{{selected_date}}" onchange="this.form.submit()"/>
             </form>
         </div>
     </nav>
-    <div class="main-content">
-        <div class="row w-100 mt-2 ">
-            <div class="col-2" id="sidebar">
-                {% include "sidebar.html" %}
-            </div>
-            <div class="col-10">
+    <div class="main-content container-fluid">
+        <div class="row mt-2 g-2">
+            <div class="col-lg-2" id="sidebar">{% include "sidebar.html" %}</div>
+            <div class="col-lg-10">
                 <div class="bg-white shadow-sm border rounded p-3">
                     <ul class="nav nav-underline mb-3" role="tablist">
                         <li class="nav-item" role="presentation">
@@ -50,19 +61,19 @@
                         </li>
                     </ul>
                     <div class="tab-content">
-                        <div class="tab-pane fade show active" id="power-tab-content" role="tabpanel" aria-labelledby="power-tab" tabindex="0">
+                        <div class="tab-pane chart-tab fade show active" id="power-tab-content" role="tabpanel" aria-labelledby="power-tab" tabindex="0">
                             <canvas id="power-chart"></canvas>
                         </div>
-                        <div class="tab-pane fade" id="voltages-tab-content" role="tabpanel" aria-labelledby="voltages-tab" tabindex="0">
+                        <div class="tab-pane chart-tab fade" id="voltages-tab-content" role="tabpanel" aria-labelledby="voltages-tab" tabindex="0">
                             <canvas id="voltages-chart"></canvas>
                         </div>
-                        <div class="tab-pane fade" id="temp-tab-content" role="tabpanel" aria-labelledby="temp-tab" tabindex="0">
+                        <div class="tab-pane chart-tab fade" id="temp-tab-content" role="tabpanel" aria-labelledby="temp-tab" tabindex="0">
                             <canvas id="temp-chart"></canvas>
                         </div>
-                        <div class="tab-pane fade" id="soc-tab-content" role="tabpanel" aria-labelledby="soc-tab" tabindex="0">
+                        <div class="tab-pane chart-tab fade" id="soc-tab-content" role="tabpanel" aria-labelledby="soc-tab" tabindex="0">
                             <canvas id="soc-chart"></canvas>
                         </div>
-                        <div class="tab-pane fade" id="energy-tab-content" role="tabpanel" aria-labelledby="energy-tab" tabindex="0">
+                        <div class="tab-pane chart-tab fade" id="energy-tab-content" role="tabpanel" aria-labelledby="energy-tab" tabindex="0">
                             <canvas id="energy-chart"></canvas>
                         </div>
                     </div>

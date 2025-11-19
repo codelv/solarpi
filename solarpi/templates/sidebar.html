@@ -1,12 +1,13 @@
 <div class="bg-white shadow-sm border rounded p-3">
-    <h5>Solar</h5>
+    <h5>Latest data</h5>
+    <h6>Solar</h6>
     <ul class="list-group list-group-flush">
         <li class="list-group-item d-flex justify-content-between">
             <div class="text-primary fw-light">{{state.solar_panel_voltage}} V</div>
             <div class="text-success fw-light">{{state.solar_panel_current}} A</div>
         </li>
     </ul>
-    <h5>Charger</h5>
+    <h6>Charger</h6>
     <ul class="list-group list-group-flush">
         <li class="list-group-item d-flex justify-content-between">
             <div class="text-primary fw-light">{{state.charger_voltage}} V</div>
@@ -15,7 +16,7 @@
         <li class="list-group-item">Temp: {{state.charger_temp}} °C</li>
         <li class="list-group-item"><small class="text-body-tertiary">Total Energy Output</small> {{ "%.3f"|format(state.charger_total_energy / 1000) }} kWh</li>
     </ul>
-    <h5>Battery</h5>
+    <h6>Battery</h6>
     <ul class="list-group list-group-flush">
         <li class="list-group-item d-flex justify-content-between">
             <div class="text-primary fw-light">{{state.battery_voltage}} V</div>

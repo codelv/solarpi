@@ -1,0 +1,8 @@
+Package: solarpi
+Version: X.X.X
+Architecture: all
+Essential: no
+Priority: optional
+Depends: python3-bleak, python3-aiohttp, python3-aiosqlite, python3-jinja2, nginx
+Maintainer: codelv
+Description: An application to log and view data from Junktek battery monitor and Helios solar chargers.

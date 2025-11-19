@@ -1,0 +1,11 @@
+# Enable nginx site
+rm -f /etc/nginx/sites-enabled/default
+ln -s /etc/nginx/sites-available/solarpi.conf /etc/nginx/sites-enabled/solarpi
+service nginx reload
+
+# Enable solarpi services
+systemctl daemon-reload
+systemctl enable solarpi-monitor.service
+systemctl enable solarpi-web.service
+systemctl restart solarpi-monitor.service
+systemctl restart solarpi-web.service
