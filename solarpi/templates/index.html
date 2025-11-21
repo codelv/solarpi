@@ -18,11 +18,15 @@
             <form method="GET" accept-charset="utf-8" class="d-flex">
                 <select name="p" class="form-select me-2"  onchange="this.form.submit()"/>
                     <option value="" {% if not selected_peroid %}selected{% endif %}>Day</option>
-                    <option value="24" {% if selected_peroid == 24 %}selected{% endif %}>24 hrs</option>
-                    <option value="12" {% if selected_peroid == 12 %}selected{% endif %}>12 hrs</option>
-                    <option value="6" {% if selected_peroid == 6 %}selected{% endif %}>6 hrs</option>
-                    <option value="3" {% if selected_peroid == 3 %}selected{% endif %}>3 hrs</option>
-                    <option value="1" {% if selected_peroid == 1 %}selected{% endif %}>1 hr</option>
+                    <option value="1440" {% if selected_peroid == 1440 %}selected{% endif %}>24 hrs</option>
+                    <option value="720" {% if selected_peroid == 720 %}selected{% endif %}>12 hrs</option>
+                    <option value="360" {% if selected_peroid == 360 %}selected{% endif %}>6 hrs</option>
+                    <option value="180" {% if selected_peroid == 180 %}selected{% endif %}>3 hrs</option>
+                    <option value="60" {% if selected_peroid == 60 %}selected{% endif %}>1 hr</option>
+                    <option value="30" {% if selected_peroid == 30 %}selected{% endif %}>30 min</option>
+                    <option value="15" {% if selected_peroid == 15 %}selected{% endif %}>15 min</option>
+                    <option value="10" {% if selected_peroid == 10 %}selected{% endif %}>10 min</option>
+                    <option value="5" {% if selected_peroid == 5 %}selected{% endif %}>5 min</option>
                 </select>
                 <input name="d" class="form-control" type="date" value="{{selected_date}}" onchange="this.form.submit()"/>
             </form>
@@ -123,6 +127,23 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        async function updateSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            while (true) {
+                try {
+                    const response = await fetch("/api/sidebar/", {method: "get"});
+                    if (!response.ok) {
+                        throw new Error(`Response status: ${response.status}`);
+                    }
+                    sidebar.innerHTML = await response.text();
+                } catch (error) {
+                    console.log(error);
+                }
+                await sleep(1000);
+            }
+        }
+        setTimeout(updateSidebar, 1000);
+
         async function updateCharts() {
             let t = {{state.timestamp}} + 1;
             while (true) {
@@ -164,24 +185,9 @@
                 await sleep(5000);
             }
         }
-
-        async function updateSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            while (true) {
-                try {
-                    const response = await fetch("/api/sidebar/", {method: "get"});
-                    if (!response.ok) {
-                        throw new Error(`Response status: ${response.status}`);
-                    }
-                    sidebar.innerHTML = await response.text();
-                } catch (error) {
-                    console.log(error);
-                }
-                await sleep(1000);
-            }
-        }
-        setTimeout(updateSidebar, 1000);
-        setTimeout(updateCharts, 5000);
+        {% if is_today %}
+            setTimeout(updateCharts, 5000);
+        {% endif %}
     </script>
   </body>
 </html>

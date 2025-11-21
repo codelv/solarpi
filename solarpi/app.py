@@ -311,7 +311,7 @@ async def index(request: web.Request):
     try:
         if peroid_str := request.query.get("p", ''):
             p = int(peroid_str)
-            assert p in (1, 3, 6, 12, 24)
+            assert 0 < p <= 1440
     except Exception as e:
         log.warning(f"Invalid time peroid: {e}")
 
@@ -320,7 +320,7 @@ async def index(request: web.Request):
         end_timestamp = datetime.combine(d.date(), time(23, 59, 59)).timestamp()
 
     else:
-        start_timestamp = (d - timedelta(hours=p)).timestamp()
+        start_timestamp = (d - timedelta(minutes=p)).timestamp()
         end_timestamp = d.timestamp()
 
     state, data = await load_time_based_charts(start_timestamp, end_timestamp)
@@ -333,6 +333,7 @@ async def index(request: web.Request):
         energy_chart=json.dumps(energy_chart),
         selected_peroid=p,
         selected_date=d.date(),
+        is_today=d.date()==datetime.now().date(),
         state=state or State()
     )
     return web.Response(text=content, content_type="text/html")
