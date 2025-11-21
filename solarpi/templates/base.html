@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}SolarPI{% endblock %}</title>
+    {% block stylesheets %}<link href="/static/bootstrap.min.css" rel="stylesheet"></link>{% endblock %}
+    {% block head %}{% endblock %}
+  </head>
+  <body class="bg-body-tertiary">
+    {% block body %}
+    <nav class="navbar">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">SolarPI</a>
+            {% block navbar %} {% endblock %}
+        </div>
+    </nav>
+    {% block content %}{% endblock %}
+    {% block scripts %}
+    <script src="/static/bootstrap.bundle.min.js"></script>
+    {% endblock %}
+    {% endblock %}
+  </body>
+</html>

@@ -13,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 from aiohttp import web
 from jinja2 import Environment, PackageLoader, select_autoescape
 
+from . import config
 from .db import State
 
 env = Environment(
@@ -339,13 +340,44 @@ async def index(request: web.Request):
     return web.Response(text=content, content_type="text/html")
 
 
+def validate_settings(data, errors) -> Optional[dict[str, Any]]:
+    try:
+        battery_capacity = int(data['battery_capacity'])
+        assert battery_capacity > 0
+        return {
+            "battery_capacity": battery_capacity
+        }
+    except Exception as e:
+        errors["battery_capacity"] = "Battery capacity must be a non-zero number"
+        log.exception(e)
+        return None
+
+
+@routes.get("/settings/")
+@routes.post("/settings/")
+async def settings_page(request: web.Request):
+    template = env.get_template("settings.html")
+    battery_capacity = State.battery_capacity
+    errors = {}
+    if request.method == "POST":
+        data = await request.post()
+        if cleaned_data := validate_settings(data, errors):
+            battery_capacity = cleaned_data['battery_capacity']
+            config.save(battery_capacity=battery_capacity)
+            return web.HTTPFound(location="/")
+    content = template.render(battery_capacity=battery_capacity, errors=errors)
+    return web.Response(text=content, content_type="text/html")
+
+
 async def on_startup(app):
     global DB
+    config.load()
     log.info("Connecting to db...")
     DB = await aiosqlite.connect("solarpi.db")
 
 
 async def on_cleanup(app):
+    config.save()
     global DB
     if DB is not None:
         await DB.close()

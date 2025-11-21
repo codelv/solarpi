@@ -1,9 +1,7 @@
-import logging
+import os
 import dataclasses
 from time import time
 from typing import ClassVar
-
-log = logging.getLogger("solarpi")
 
 @dataclasses.dataclass
 class State:
@@ -14,7 +12,7 @@ class State:
     battery_is_temp_in_f: ClassVar[bool] = True
     battery_ah: float = 0
     battery_temp: float = 0
-    battery_capcity: ClassVar[float] = 600
+    battery_capacity: ClassVar[float] = 600
     battery_total_charge_energy: float = 0
     battery_total_discharge_energy: float = 0
 
@@ -41,7 +39,7 @@ class State:
 
     @property
     def battery_percent(self):
-        return round(100 * self.battery_ah / self.battery_capcity, 2)
+        return round(100 * self.battery_ah / self.battery_capacity, 2)
 
     @property
     def charger_power(self):

@@ -1,3 +1,4 @@
+import os
 import sys
 import struct
 import asyncio
@@ -11,6 +12,7 @@ from logging.handlers import RotatingFileHandler
 
 from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic, BleakError
 
+from . import config
 from .db import State
 
 log = logging.getLogger("solarpi")
@@ -417,6 +419,7 @@ async def main():
     )
     log.setLevel(logging.DEBUG)
     try:
+        config.load()
         await init_db()
         # await reset_bluetooth(5)
         await asyncio.gather(
@@ -427,6 +430,7 @@ async def main():
         )
     finally:
         await fini_db()
+        config.save()
 
 
 if __name__ == '__main__':
