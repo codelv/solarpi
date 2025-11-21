@@ -125,6 +125,185 @@ async def load_energy_chart(d: date) -> ChartDef:
     }
 
 
+async def load_peaks_chart(d: date) -> ChartDef:
+    assert DB is not None
+    dates = []
+    peak_battery_charge_power = []
+    peak_battery_discharge_power = []
+    peak_battery_charge_current = []
+    peak_battery_discharge_current = []
+    peak_solar_power = []
+    peak_inverter_power = []
+    peak_inverter_current = []
+    peak_charger_current = []
+
+    start = datetime.combine(d, time(12, 0))
+    for i in range(8, -1, -1):
+        d = (start - timedelta(days=i)).date()
+        st = datetime.combine(d, time(0, 0)).timestamp()
+        et = datetime.combine(d, time(23, 59, 59)).timestamp()
+        dates.append(d)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(charger_voltage * charger_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_solar_power.append(row[0])
+            else:
+                peak_solar_power.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(charger_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_charger_current.append(row[0])
+            else:
+                peak_charger_current.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(battery_voltage * battery_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? AND battery_is_charging = 1 ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_battery_charge_power.append(row[0])
+            else:
+                peak_battery_charge_power.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(battery_voltage * battery_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? AND battery_is_charging = 0 ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_battery_discharge_power.append(row[0])
+            else:
+                peak_battery_discharge_power.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(CASE battery_is_charging "
+                "WHEN 1 THEN (charger_voltage * charger_current - battery_voltage * battery_current) "
+                "ELSE (battery_voltage * battery_current + charger_voltage * charger_current) "
+                "END) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_inverter_power.append(row[0])
+            else:
+                peak_inverter_power.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(CASE battery_is_charging "
+                "WHEN 1 THEN (charger_current - battery_current) "
+                "ELSE (battery_current + charger_current) "
+                "END) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_inverter_current.append(row[0])
+            else:
+                peak_inverter_current.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(battery_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? AND battery_is_charging = 1 ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_battery_charge_current.append(row[0])
+            else:
+                peak_battery_charge_current.append(0)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(battery_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? AND battery_is_charging = 0 ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_battery_discharge_current.append(row[0])
+            else:
+                peak_battery_discharge_current.append(0)
+
+    peak_chart_data = {
+        "labels": [str(d) for d in dates],
+        "datasets": [
+            {
+                "label": "Peak solar power (W)",
+                "data": peak_solar_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak battery charge power (W)",
+                "data": peak_battery_charge_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak battery discharge power (W)",
+                "data": peak_battery_discharge_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak inverter power (W)",
+                "data": peak_inverter_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak charger current (A)",
+                "data": peak_charger_current,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak battery charge current (A)",
+                "data": peak_battery_charge_current,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak battery discharge current (A)",
+                "data": peak_battery_discharge_current,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak inverter current (A)",
+                "data": peak_inverter_current,
+                "borderWidth": 1,
+            },
+        ],
+    }
+    return {
+        "type": "bar",
+        "data": peak_chart_data,
+        "options": {
+            "scales": {
+                "y": {
+                    "beginAtZero": True,
+                }
+            },
+        },
+    }
+
+
 async def load_time_based_charts(
     start_timestamp: int, end_timestamp: Optional[int] = None
 ) -> tuple[Optional[State], dict[str, ChartData]]:
@@ -350,12 +529,14 @@ async def index(request: web.Request):
 
     state, data = await load_time_based_charts(start_timestamp, end_timestamp)
     energy_chart = await load_energy_chart(d.date())
+    peaks_chart = await load_peaks_chart(d.date())
     content = template.render(
         power_chart=json.dumps(line_chart(data["power"])),
         voltages_chart=json.dumps(line_chart(data["voltages"])),
         soc_chart=json.dumps(line_chart(data["soc"])),
         temp_chart=json.dumps(line_chart(data["temp"])),
         energy_chart=json.dumps(energy_chart),
+        peaks_chart=json.dumps(peaks_chart),
         selected_peroid=p,
         selected_date=d.date(),
         is_today=d.date() == datetime.now().date(),

@@ -37,27 +37,32 @@
                     <ul class="nav nav-underline mb-3" role="tablist">
                         <li class="nav-item" role="presentation">
                             <button class="nav-link active" id="power-tab" data-bs-toggle="pill" data-bs-target="#power-tab-content" type="button" role="tab" aria-controls="power-tab-content" aria-selected="true">
-                                Power Graphs
+                                Power
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="voltages-tab" data-bs-toggle="pill" data-bs-target="#voltages-tab-content" type="button" role="tab" aria-controls="voltages-tab-content" aria-selected="false">
-                                Voltage & Current Graphs
+                                Voltage & Current
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="soc-tab" data-bs-toggle="pill" data-bs-target="#soc-tab-content" type="button" role="tab" aria-controls="soc-tab-content" aria-selected="false">
-                                Battery Graphs
+                                Battery SOC
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="temp-tab" data-bs-toggle="pill" data-bs-target="#temp-tab-content" type="button" role="tab" aria-controls="temp-tab-content" aria-selected="false">
-                                Temperature Graphs
+                                Temperature
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="energy-tab" data-bs-toggle="pill" data-bs-target="#energy-tab-content" type="button" role="tab" aria-controls="energy-tab-content" aria-selected="false">
-                                Energy Production Graphs
+                                Daily Energy Production
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="peaks-tab" data-bs-toggle="pill" data-bs-target="#peaks-tab-content" type="button" role="tab" aria-controls="peaks-tab-content" aria-selected="false">
+                                Daily Peak Power & Current
                             </button>
                         </li>
                     </ul>
@@ -76,6 +81,9 @@
                         </div>
                         <div class="tab-pane chart-tab fade" id="energy-tab-content" role="tabpanel" aria-labelledby="energy-tab" tabindex="0">
                             <canvas id="energy-chart"></canvas>
+                        </div>
+                        <div class="tab-pane chart-tab fade" id="peaks-tab-content" role="tabpanel" aria-labelledby="peaks-tab" tabindex="0">
+                            <canvas id="peaks-chart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -109,6 +117,10 @@
             energy: {
                 chart: null,
                 data: {{energy_chart|safe}},
+            },
+            peaks: {
+                chart: null,
+                data: {{peaks_chart|safe}},
             },
         };
         for (let key in charts) {

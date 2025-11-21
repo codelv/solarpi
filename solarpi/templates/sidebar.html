@@ -2,9 +2,13 @@
     <h5>Latest data</h5>
     <h6>Solar</h6>
     <ul class="list-group list-group-flush">
-        <li class="list-group-item d-flex justify-content-between">
-            <div class="text-primary fw-light">{{state.solar_panel_voltage}} V</div>
-            <div class="text-success fw-light">{{state.solar_panel_current}} A</div>
+        <li class="list-group-item">
+            <small class="text-body-tertiary d-block">Power output</small>
+            <span class="text-info  fs-3">{{state.charger_power}} W</span>
+            <div class="d-flex justify-content-between">
+                <div class="text-primary fw-light">{{state.solar_panel_voltage}} V</div>
+                <div class="text-success fw-light">{{state.solar_panel_current}} A</div>
+            </div>
         </li>
     </ul>
     <h6>Charger</h6>
@@ -14,17 +18,24 @@
             <div class="text-success fw-light">{{state.charger_current}} A</div>
         </li>
         <li class="list-group-item">Temp: {{state.charger_temp}} °C</li>
-        <li class="list-group-item"><small class="text-body-tertiary">Total Energy Output</small> {{ "%.3f"|format(state.charger_total_energy / 1000) }} kWh</li>
+        <li class="list-group-item"><small class="text-body-tertiary d-block">Total Energy Output</small> {{ "%.3f"|format(state.charger_total_energy / 1000) }} kWh</li>
     </ul>
     <h6>Battery</h6>
+
     <ul class="list-group list-group-flush">
-        <li class="list-group-item d-flex justify-content-between">
-            <div class="text-primary fw-light">{{state.battery_voltage}} V</div>
-            <div class="{% if state.battery_is_charging %}text-success{% else %}text-danger{% endif %} fw-light">{{state.battery_current}} A</div>
+        <li class="list-group-item">
+            <small class="text-body-tertiary d-block">{% if state.battery_is_charging %}Charging{% else %}Dischargin{% endif %}</small>
+            <span class="{% if state.battery_is_charging %}text-info{% else %}text-danger{% endif %} fs-3">{% if not state.battery_is_charging %}-{% endif %}{{state.battery_power}} W</span>
+            <div class="d-flex justify-content-between">
+                <div class="text-primary fw-light">{{state.battery_voltage}} V</div>
+                <div class="{% if state.battery_is_charging %}text-success{% else %}text-danger{% endif %} fw-light">
+                    {% if not state.battery_is_charging %}-{% endif %}{{state.battery_current}} A
+                </div>
+            </div>
         </li>
         <li class="list-group-item">SOC: {{state.battery_percent}}% ({{state.battery_ah}} Ah)</li>
         <li class="list-group-item">Temp: {{state.battery_temp}} °C</li>
-        <li class="list-group-item"><small class="text-body-tertiary">Total Charge Energy</small> {{ "%.3f"|format(state.battery_total_charge_energy/1000) }} kWh</li>
-        <li class="list-group-item"><small class="text-body-tertiary">Total Discharge Energy</small> {{ "%.3f"|format(state.battery_total_discharge_energy/1000) }} kWh</li>
+        <li class="list-group-item"><small class="text-body-tertiary d-block">Total Charge Energy</small> {{ "%.3f"|format(state.battery_total_charge_energy/1000) }} kWh</li>
+        <li class="list-group-item"><small class="text-body-tertiary d-block">Total Discharge Energy</small> {{ "%.3f"|format(state.battery_total_discharge_energy/1000) }} kWh</li>
     </ul>
 </div>
