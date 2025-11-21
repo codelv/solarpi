@@ -10,7 +10,7 @@
 {% endblock %}
 {% block navbar %}
     <div class="d-flex">
-        <a class="btn btn-link me-2" href="/settings/">Settings</a>
+        <a class="btn btn-link text-decoration-none me-2" href="/settings/">Settings</a>
         <form method="GET" accept-charset="utf-8" class="d-flex">
             <select name="p" class="form-select me-2"  onchange="this.form.submit()"/>
                 <option value="" {% if not selected_peroid %}selected{% endif %}>Day</option>
