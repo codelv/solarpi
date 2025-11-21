@@ -1,12 +1,12 @@
 # SolarPI
 
-Solarpi is an app to do datalogging of the junctec battery monitor and helios solar chargers via bluetooth.
+Solarpi is a simple python app to do datalogging of the junctec battery monitor and helios solar chargers via bluetooth.
 
 It's made for a raspberry pi zero 2w but should will work on any debian based system.
 
 ![solarpi-web](docs/solarpi-screenshot.png)
 
-To view live data using just an android see [https://github.com/codelv/solar](solar).
+To view live data using an android phone see [https://github.com/codelv/solar](solar).
 
 ### About
 
@@ -45,7 +45,7 @@ systemctl start solarpi-web.service
 
 ### Setup nginx proxy
 
-This is done to avoid running the app as root.
+This is done so the app does not need to be running as root.
 
 ```
 apt install nginx
@@ -54,6 +54,12 @@ cp solarpi.site /etc/nginx/sites-enabled/solarpi
 service nginx restart
 ```
 
-You should see the app. 
+## Usage
+
+Go to the ip or hostname of the pi in your browser and you should see the web page. 
+
+If you see a 502 Bad gateway page make sure the solarpi-web service is up and running. 
+
+Check logs using `journalctl -f solarpi-web.service` and `journalctl -f solarpi-monitor.service`.
 
 
