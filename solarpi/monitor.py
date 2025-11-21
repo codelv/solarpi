@@ -9,7 +9,7 @@ from typing import ClassVar, Optional
 from time import time
 from logging.handlers import RotatingFileHandler
 
-from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic
+from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic, BleakError
 
 from .db import State
 
@@ -32,9 +32,9 @@ BT_LOCK = asyncio.Lock()
 ERROR_COUNT = 0
 SOLAR_CHARGER_ERROR_COUNT = 0
 # 54:14:A7:53:14:E9 BTG964
-BATTERY_MONITOR_DEVICE = None
+BATTERY_MONITOR: Optional[BleakClient] = None
 # C8:47:80:0D:2C:6A ChargePro
-SOLAR_CHARGER_DEVICE = None
+SOLAR_CHARGER: Optional[BleakClient] = None
 
 
 class BatteryMonitor:
@@ -91,6 +91,10 @@ async def reset_bluetooth(timeout: int = 2):
     log.warning(f"Resetting bluetooth (timeout={timeout})")
     log.debug(bluetooth_power(False))
     await asyncio.sleep(timeout/2)
+    global SOLAR_CHARGER
+    global BATTERY_MONITOR
+    SOLAR_CHARGER = None
+    BATTERY_MONITOR = None
     log.debug(bluetooth_power(True))
     await asyncio.sleep(timeout/2)
 
@@ -109,43 +113,47 @@ async def scan_devices():
     """ Scan for a battery monitor and charger
 
     """
-    global BATTERY_MONITOR_DEVICE
-    global SOLAR_CHARGER_DEVICE
+    global BATTERY_MONITOR
+    global SOLAR_CHARGER
     global ERROR_COUNT
     scan_attempts = 0
+    def on_detection_callback(device, data):
+        global SOLAR_CHARGER
+        global BATTERY_MONITOR
+        if BATTERY_MONITOR is None and BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids:
+            log.info(f"Found battery monitor: {device}")
+            BATTERY_MONITOR = BleakClient(device, timeout=20)
+        elif SOLAR_CHARGER is None and (
+            SOLAR_CHARGER_DATA_SERVICE_UUID in data.service_uuids
+            # Battery monitor has both
+            and BATTERY_MONITOR_DATA_SERVICE_UUID not in data.service_uuids
+        ):
+            log.info(f"Found solar charger: {device}")
+            SOLAR_CHARGER = BleakClient(device, timeout=20)
+
+    scanner = BleakScanner(on_detection_callback)
     while True:
         try:
-            if BATTERY_MONITOR_DEVICE and SOLAR_CHARGER_DEVICE:
-                continue # Both are connected ok. Nothing to do!
-
             if ERROR_COUNT >= 5:
                 # It's possible for one device to get stuck in a error loop
                 # where the device is found but for whatever reason it cannot connect or send data
                 # If error count exceeds the limit do a full reset
-                await reset_bluetooth(30)
+                await reset_bluetooth(10)
                 ERROR_COUNT = 0
+
+            if BATTERY_MONITOR and SOLAR_CHARGER:
+                continue # Both are connected ok. Nothing to do!
 
             log.info("Scanning devices...")
             async with BT_LOCK:
-                result = await BleakScanner.discover(timeout=20, return_adv=True)
-            for device, data in result.values():
-                log.info(f"  - {device} {data}")
+                async with scanner:
+                    await asyncio.sleep(30)
+                result = scanner.discovered_devices_and_advertisement_data
+            for device, data in result.items():
+                log.info(f" - {device} {data}")
 
-            for device, data in result.values():
-                if BATTERY_MONITOR_DEVICE is None and (
-                    #BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids
-                    device.name == "BTG964"
-                ):
-                    BATTERY_MONITOR_DEVICE = device
-                    log.info(f"Found battery monitor: {device}")
-                elif SOLAR_CHARGER_DEVICE is None and (
-                    # SOLAR_CHARGER_DATA_SERVICE_UUID in data.service_uuids
-                    device.name == "ChargePro"
-                ):
-                    SOLAR_CHARGER_DEVICE = device
-                    log.info(f"Found solar charger: {device}")
 
-            if BATTERY_MONITOR_DEVICE and SOLAR_CHARGER_DEVICE:
+            if BATTERY_MONITOR and SOLAR_CHARGER:
                 scan_attempts = 0
                 log.info("Both devices found")
                 continue
@@ -155,7 +163,7 @@ async def scan_devices():
             scan_attempts += 1
             log.error(f"Failed scan attempts {scan_attempts}")
             if scan_attempts >= 10:
-                await reset_bluetooth(5)
+                await reset_bluetooth(10)
                 scan_attempts = 0
 
         except Exception as e:
@@ -166,7 +174,16 @@ async def scan_devices():
 
 
 def decode_battery_monitor_data(packet: bytearray):
-    """ Decode the battery monitor data and update the global state """
+    """ Decode the battery monitor data and update the global state
+    bb324397d20542d347ee
+    bb0530c1013886d840ee
+    bb0550c1014410d866ee
+    bb324395d20546d349ee
+    bb324394d20550d358ee
+    bb0540c1014148d803ee
+    bb324392d20554d360ee
+    bb0530c1013886d840ee
+    """
     data = bytearray()
     state = State.instance()
     changed = False
@@ -212,12 +229,11 @@ def decode_battery_monitor_data(packet: bytearray):
 
 async def monitor_battery():
     global ERROR_COUNT
-    global BATTERY_MONITOR_DEVICE
-    client: Optional[BleakClient] = None
+    global BATTERY_MONITOR
     while True:
+        await asyncio.sleep(1)
         try:
-            if BATTERY_MONITOR_DEVICE is None:
-                await asyncio.sleep(1)
+            if BATTERY_MONITOR is None:
                 continue
 
             read_buffer = bytearray()
@@ -254,33 +270,34 @@ async def monitor_battery():
                 last_sent = None
 
             async with BT_LOCK:
-                log.info(f"Connecting to battery monitor: {BATTERY_MONITOR_DEVICE}")
-                client = BleakClient(BATTERY_MONITOR_DEVICE, timeout=20)
-                await client.connect()
-                model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+                log.info("Connecting to battery monitor")
+                await BATTERY_MONITOR.connect(timeout=30)
+                await BATTERY_MONITOR.get_services()
+
+                model_number = await BATTERY_MONITOR.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
                 log.info(f"Battery monitor model: {model_number}")
-                await client.start_notify(BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data)
+                await BATTERY_MONITOR.start_notify(BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data)
 
             # Periodically poll to make sure it's not just sitting with no data coming in
-            while True:
+            while BATTERY_MONITOR is not None:
+                await asyncio.sleep(10)
                 now = time()
                 if last_sent is None or (now - last_sent) > 60:
                     last_sent = now
                     async with BT_LOCK:
-                        await client.write_gatt_char(BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID, BATTERY_MONITOR_REFRESH)
-                await asyncio.sleep(1)
+                        await BATTERY_MONITOR.write_gatt_char(BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID, BATTERY_MONITOR_REFRESH, response=False)
+
 
         except Exception as e:
             log.error("Error in monitor_battery:")
             log.exception(e)
-            if client is not None:
+            if BATTERY_MONITOR is not None and BATTERY_MONITOR.is_connected:
                 async with BT_LOCK:
-                    await client.disconnect()
-                client = None
-            BATTERY_MONITOR_DEVICE = None
+                    await BATTERY_MONITOR.disconnect()
+                # BATTERY_MONITOR = None
             ERROR_COUNT += 1
             log.debug(f"  error count {ERROR_COUNT}")
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
 
 
 def decode_solar_charger_data(packet):
@@ -304,14 +321,12 @@ def decode_solar_charger_data(packet):
 
 async def monitor_charger():
     global ERROR_COUNT
-    global SOLAR_CHARGER_DEVICE
-    client: Optional[BleakClient] = None
+    global SOLAR_CHARGER
     while True:
+        await asyncio.sleep(1)
         try:
-            if SOLAR_CHARGER_DEVICE is None:
-                await asyncio.sleep(1)
+            if SOLAR_CHARGER is None:
                 continue
-
 
             last_sent = None
             def callback(sender: BleakGATTCharacteristic, data: bytearray):
@@ -320,44 +335,46 @@ async def monitor_charger():
                 last_sent = None
 
             async with BT_LOCK:
-                log.info(f"Connecting to solar charger: {SOLAR_CHARGER_DEVICE}")
-                client = BleakClient(SOLAR_CHARGER_DEVICE, timeout=20)
-                await client.connect()
-                model_number = await client.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+                #client = BleakClient(SOLAR_CHARGER_DEVICE, timeout=20)
+                log.info("Connecting to solar charger")
+                await SOLAR_CHARGER.connect(timeout=30)
+                await SOLAR_CHARGER.get_services()
+                model_number = await SOLAR_CHARGER.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
                 log.info(f"Solar charger model: {model_number}")
-                await client.start_notify(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, callback)
+                await SOLAR_CHARGER.start_notify(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, callback)
 
             # Periodically poll to make sure it's not just sitting with no data coming in
-            while True:
+            while SOLAR_CHARGER is not None:
+                await asyncio.sleep(1)
                 now = time()
                 if last_sent is None or (now - last_sent) > 5:
                     # If we get no response or a reply
                     last_sent = now
                     async with BT_LOCK:
-                        await client.write_gatt_char(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, SOLAR_CHARGER_HOME_DATA)
-                await asyncio.sleep(1)
+                        await SOLAR_CHARGER.write_gatt_char(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, SOLAR_CHARGER_HOME_DATA, response=False)
+
         except Exception as e:
             log.error("Error in monitor_charger:")
             log.exception(e)
-            if client is not None:
+            if SOLAR_CHARGER is not None and SOLAR_CHARGER.is_connected:
                 async with BT_LOCK:
-                    await client.disconnect()
-                client = None
-            SOLAR_CHARGER_DEVICE = None # Force re-scan
+                    await SOLAR_CHARGER.disconnect()
+                # SOLAR_CHARGER = None
             ERROR_COUNT += 1
             log.debug(f"  error count {ERROR_COUNT}")
-            await asyncio.sleep(1)
+            await asyncio.sleep(30)
 
 
 async def snapshot_task():
     global DB
-    global SOLAR_CHARGER_DEVICE
-    global BATTERY_MONITOR_DEVICE
+    global SOLAR_CHARGER
+    global BATTERY_MONITOR
     last_timestamp = 0
     state = State.instance()
     while True:
+        await asyncio.sleep(1)
         try:
-            if DB and (SOLAR_CHARGER_DEVICE or BATTERY_MONITOR_DEVICE):
+            if DB and (SOLAR_CHARGER or BATTERY_MONITOR):
                 if state.timestamp != last_timestamp:
                     last_timestamp = state.timestamp
                     cmd = state.insert_values_sql()
@@ -367,7 +384,7 @@ async def snapshot_task():
         except Exception as e:
             log.error("Error in snapshot_task:")
             log.exception(e)
-        await asyncio.sleep(1)
+
 
 
 async def init_db():
@@ -391,7 +408,7 @@ async def fini_db():
 
 async def main():
     logging.basicConfig(
-        level=logging.WARNING,
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             RotatingFileHandler("solarpi-monitor.log", maxBytes=5*1024*1000, backupCount=3),
@@ -401,7 +418,7 @@ async def main():
     log.setLevel(logging.DEBUG)
     try:
         await init_db()
-        await reset_bluetooth(5)
+        # await reset_bluetooth(5)
         await asyncio.gather(
             scan_devices(),
             monitor_battery(),
