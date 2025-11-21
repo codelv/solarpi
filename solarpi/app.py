@@ -530,10 +530,14 @@ async def index(request: web.Request):
     state, data = await load_time_based_charts(start_timestamp, end_timestamp)
     energy_chart = await load_energy_chart(d.date())
     peaks_chart = await load_peaks_chart(d.date())
+
+    soc_chart = line_chart(data["soc"])
+    soc_chart["options"]["scales"]["y"] = {"beginAtZero": True}
+
     content = template.render(
         power_chart=json.dumps(line_chart(data["power"])),
         voltages_chart=json.dumps(line_chart(data["voltages"])),
-        soc_chart=json.dumps(line_chart(data["soc"])),
+        soc_chart=json.dumps(soc_chart),
         temp_chart=json.dumps(line_chart(data["temp"])),
         energy_chart=json.dumps(energy_chart),
         peaks_chart=json.dumps(peaks_chart),
