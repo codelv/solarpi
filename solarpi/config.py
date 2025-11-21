@@ -1,34 +1,38 @@
-import os
-import json
 import dataclasses
+import json
 import logging
-
-from typing import Any, Optional
+import os
+from typing import Optional
 
 from .db import State
 
 log = logging.getLogger("solarpi")
 
-CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config/")), "solarpi")
-CONFIG_FILE = os.path.join(CONFIG_DIR, 'solarpi.json')
+CONFIG_DIR = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config/")), "solarpi"
+)
+CONFIG_FILE = os.path.join(CONFIG_DIR, "solarpi.json")
+
 
 @dataclasses.dataclass
 class Config:
     battery_capacity: float = 600
 
-CONFIG: Optional[Config] = None
+
+CONFIG: Optional[Config] = None  # noqa: F824
+
 
 def load() -> Config:
-    """ Load config from disk and set it to the global CONFIG object """
+    """Load config from disk and set it to the global CONFIG object"""
     global CONFIG
     log.info(f"Reading config {CONFIG_FILE}")
     os.makedirs(CONFIG_DIR, exist_ok=True)
     try:
         if os.path.exists(CONFIG_FILE):
-            with open(CONFIG_FILE, 'r') as f:
+            with open(CONFIG_FILE, "r") as f:
                 config = Config(**json.load(f))
         else:
-            log.debug(f"Config file does not exist.. Using default")
+            log.debug("Config file does not exist.. Using default")
             config = Config()
     except Exception as e:
         log.warning("Failed to read config. Using default")
@@ -51,9 +55,8 @@ def apply(config: Config):
 
 
 def save(**kwargs):
-    """ Save config to disk. If no config is passed the global CONFIG is used. """
+    """Save config to disk. If no config is passed the global CONFIG is used."""
     try:
-        global  CONFIG
         if CONFIG is None:
             config = load()
         else:
@@ -62,7 +65,7 @@ def save(**kwargs):
             setattr(config, k, v)
         apply(config)
         log.info(f"Saving config {config} to {CONFIG_FILE}")
-        with open(CONFIG_FILE, 'w') as f:
+        with open(CONFIG_FILE, "w") as f:
             json.dump(dataclasses.asdict(config), f, indent=2)
     except Exception as e:
         log.error("Failed to save config")

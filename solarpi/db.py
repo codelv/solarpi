@@ -1,7 +1,10 @@
-import os
 import dataclasses
+import logging
 from time import time
-from typing import ClassVar
+from typing import ClassVar, Optional
+
+log = logging.getLogger("solarpi")
+
 
 @dataclasses.dataclass
 class State:
@@ -24,12 +27,12 @@ class State:
     charger_status: int = 0
     room_temp: float = 0
 
-    _instance: ClassVar["State"] = None
+    _instance: ClassVar[Optional["State"]] = None
 
     @property
     def solar_panel_current(self):
         if v := self.solar_panel_voltage:
-            return round(self.charger_voltage/v * self.charger_current, 2)
+            return round(self.charger_voltage / v * self.charger_current, 2)
         return 0
 
     @property

@@ -1,16 +1,13 @@
-import os
-import sys
-import struct
 import asyncio
 import logging
-import aiosqlite
-import dataclasses
 import subprocess
-from typing import ClassVar, Optional
-from time import time
+import sys
 from logging.handlers import RotatingFileHandler
+from time import time
+from typing import Optional
 
-from bleak import BleakScanner, BleakClient, BleakGATTCharacteristic, BleakError
+import aiosqlite
+from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
 
 from . import config
 from .db import State
@@ -43,62 +40,61 @@ class BatteryMonitor:
 
     @staticmethod
     def is_cmd(c: int):
-        return c >= 0xa0
+        return c >= 0xA0
 
+    RECORDED_VOLTAGE = 0xA0
+    RECORDED_CHARGE_CURRENT = 0xA1
+    RECORDED_DISCHARGE_CURRENT = 0xA2
+    RECORDED_DATA_START = 0xAA
 
-    RECORDED_VOLTAGE = 0xa0
-    RECORDED_CHARGE_CURRENT = 0xa1
-    RECORDED_DISCHARGE_CURRENT = 0xa2
-    RECORDED_DATA_START = 0xaa
+    BATTERY_CAPACITY = 0xB0
+    OVER_TEMP_PROTECTION = 0xB1
+    VOLTAGE_ALIGN = 0xB2
+    CURRENT_ALIGN = 0xB3
+    TEMP_ENABLED = 0xB4
+    LAN_STATUS = 0xB7
+    LIVE_DATA_START = 0xBB
+    VOLTAGE = 0xC0
+    CURRENT = 0xC1
+    ITEM2 = 0xC2
+    ITEM3 = 0xC3
+    LAN_ADDR = 0xC4
+    OVER_VOLTAGE_PROTECTION_STATUS = 0xC5
 
-    BATTERY_CAPACITY = 0xb0
-    OVER_TEMP_PROTECTION = 0xb1
-    VOLTAGE_ALIGN = 0xb2
-    CURRENT_ALIGN = 0xb3
-    TEMP_ENABLED = 0xb4
-    LAN_STATUS = 0xb7
-    LIVE_DATA_START = 0xbb
-    VOLTAGE = 0xc0
-    CURRENT = 0xc1
-    ITEM2 = 0xc2
-    ITEM3 = 0xc3
-    LAN_ADDR = 0xc4
-    OVER_VOLTAGE_PROTECTION_STATUS = 0xc5
+    STATUS = 0xD0
+    IS_CHARGING = 0xD1
+    REMAINING_AH = 0xD2
+    TOTAL_DISCHARGE_ENERGY = 0xD3
+    TOTAL_CHARGE_ENERGY = 0xD4
 
-    STATUS = 0xd0
-    IS_CHARGING = 0xd1
-    REMAINING_AH = 0xd2
-    TOTAL_DISCHARGE_ENERGY = 0xd3
-    TOTAL_CHARGE_ENERGY = 0xd4
+    RECORD_PROGRESS_IN_MINS = 0xD5
+    REMAINING_TIME_IN_MINS = 0xD5
+    POWER = 0xD8
+    TEMP_DATA = 0xD9  # in C
 
-    RECORD_PROGRESS_IN_MINS = 0xd5
-    REMAINING_TIME_IN_MINS = 0xd5
-    POWER = 0xd8
-    TEMP_DATA = 0xd9 # in C
+    CONFIG = 0xE0
+    VERSION_INFO = 0xE2
+    LOW_TEMP_PROTECTION_LEVEL = 0xE3
+    DATA_END = 0xEE
 
-    CONFIG = 0xe0
-    VERSION_INFO = 0xe2
-    LOW_TEMP_PROTECTION_LEVEL = 0xe3
-    DATA_END = 0xee
-
-    IS_RECORDING = 0xf1
-    RECORDED_DATA_START_DATE = 0xf2
-    RECORDED_DATA_START_TIME = 0xf3
-    RECORDED_DATA_INDEX = 0xf4
-    PASSWORD = 0xf6
-    IS_TEMP_IN_F = 0xf7
+    IS_RECORDING = 0xF1
+    RECORDED_DATA_START_DATE = 0xF2
+    RECORDED_DATA_START_TIME = 0xF3
+    RECORDED_DATA_INDEX = 0xF4
+    PASSWORD = 0xF6
+    IS_TEMP_IN_F = 0xF7
 
 
 async def reset_bluetooth(timeout: int = 2):
     log.warning(f"Resetting bluetooth (timeout={timeout})")
     log.debug(bluetooth_power(False))
-    await asyncio.sleep(timeout/2)
+    await asyncio.sleep(timeout / 2)
     global SOLAR_CHARGER
     global BATTERY_MONITOR
     SOLAR_CHARGER = None
     BATTERY_MONITOR = None
     log.debug(bluetooth_power(True))
-    await asyncio.sleep(timeout/2)
+    await asyncio.sleep(timeout / 2)
 
 
 def bluetooth_power(on: bool):
@@ -112,17 +108,17 @@ def bluetooth_power(on: bool):
 
 
 async def scan_devices():
-    """ Scan for a battery monitor and charger
-
-    """
-    global BATTERY_MONITOR
-    global SOLAR_CHARGER
+    """Scan for a battery monitor and charger"""
     global ERROR_COUNT
     scan_attempts = 0
+
     def on_detection_callback(device, data):
         global SOLAR_CHARGER
         global BATTERY_MONITOR
-        if BATTERY_MONITOR is None and BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids:
+        if (
+            BATTERY_MONITOR is None
+            and BATTERY_MONITOR_DATA_SERVICE_UUID in data.service_uuids
+        ):
             log.info(f"Found battery monitor: {device}")
             BATTERY_MONITOR = BleakClient(device, timeout=20)
         elif SOLAR_CHARGER is None and (
@@ -144,7 +140,7 @@ async def scan_devices():
                 ERROR_COUNT = 0
 
             if BATTERY_MONITOR and SOLAR_CHARGER:
-                continue # Both are connected ok. Nothing to do!
+                continue  # Both are connected ok. Nothing to do!
 
             log.info("Scanning devices...")
             async with BT_LOCK:
@@ -153,7 +149,6 @@ async def scan_devices():
                 result = scanner.discovered_devices_and_advertisement_data
             for device, data in result.items():
                 log.info(f" - {device} {data}")
-
 
             if BATTERY_MONITOR and SOLAR_CHARGER:
                 scan_attempts = 0
@@ -176,7 +171,7 @@ async def scan_devices():
 
 
 def decode_battery_monitor_data(packet: bytearray):
-    """ Decode the battery monitor data and update the global state
+    """Decode the battery monitor data and update the global state
     bb324397d20542d347ee
     bb0530c1013886d840ee
     bb0550c1014410d866ee
@@ -191,7 +186,7 @@ def decode_battery_monitor_data(packet: bytearray):
     changed = False
     for c in packet[1:-1]:
         if BatteryMonitor.is_cmd(c) and data:
-            #log.debug(f"Decode '{hex(c)}' data {data.hex()}")
+            # log.debug(f"Decode '{hex(c)}' data {data.hex()}")
             if c == BatteryMonitor.VOLTAGE:
                 state.battery_voltage = int(data.hex()) / 100
                 changed = True
@@ -231,7 +226,6 @@ def decode_battery_monitor_data(packet: bytearray):
 
 async def monitor_battery():
     global ERROR_COUNT
-    global BATTERY_MONITOR
     while True:
         await asyncio.sleep(1)
         try:
@@ -241,8 +235,11 @@ async def monitor_battery():
             read_buffer = bytearray()
             last_sent = None
 
-            def on_battery_monitor_data(sender: BleakGATTCharacteristic, data: bytearray):
+            def on_battery_monitor_data(
+                sender: BleakGATTCharacteristic, data: bytearray
+            ):
                 log.debug(f" battery monitor data: {sender}: {data.hex()}")
+                nonlocal last_sent
                 nonlocal read_buffer
                 read_buffer += data
                 while read_buffer:
@@ -255,15 +252,15 @@ async def monitor_battery():
                     else:
                         start = start_rec
                     end = read_buffer.find(BatteryMonitor.DATA_END)
-                    if (end >= 0 and end <= start):
-                        read_buffer = read_buffer[end+1:] # Discard extra
+                    if end >= 0 and end <= start:
+                        read_buffer = read_buffer[end + 1 :]  # Discard extra
                         break
-                    elif (end < 0 or start < 0):
-                        break # Need to read more
+                    elif end < 0 or start < 0:
+                        break  # Need to read more
                     assert start >= 0 and end > start
 
                     packet = read_buffer[start:end]
-                    read_buffer = read_buffer[end+1:]
+                    read_buffer = read_buffer[end + 1 :]
                     decode_battery_monitor_data(packet)
 
                 if len(read_buffer) > 512:
@@ -276,9 +273,13 @@ async def monitor_battery():
                 await BATTERY_MONITOR.connect(timeout=30)
                 await BATTERY_MONITOR.get_services()
 
-                model_number = await BATTERY_MONITOR.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+                model_number = await BATTERY_MONITOR.read_gatt_char(
+                    DEVICE_MODEL_CHARACTERISTIC_UUID
+                )
                 log.info(f"Battery monitor model: {model_number}")
-                await BATTERY_MONITOR.start_notify(BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data)
+                await BATTERY_MONITOR.start_notify(
+                    BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data
+                )
 
             # Periodically poll to make sure it's not just sitting with no data coming in
             while BATTERY_MONITOR is not None:
@@ -287,8 +288,11 @@ async def monitor_battery():
                 if last_sent is None or (now - last_sent) > 60:
                     last_sent = now
                     async with BT_LOCK:
-                        await BATTERY_MONITOR.write_gatt_char(BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID, BATTERY_MONITOR_REFRESH, response=False)
-
+                        await BATTERY_MONITOR.write_gatt_char(
+                            BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID,
+                            BATTERY_MONITOR_REFRESH,
+                            response=False,
+                        )
 
         except Exception as e:
             log.error("Error in monitor_battery:")
@@ -304,13 +308,18 @@ async def monitor_battery():
 
 def decode_solar_charger_data(packet):
     state = State.instance()
-    if len(packet) == 43 and packet[0] == 0x01 and packet[1] == 0x03 and packet[2] == 0x26:
+    if (
+        len(packet) == 43
+        and packet[0] == 0x01
+        and packet[1] == 0x03
+        and packet[2] == 0x26
+    ):
         # Home data
         state.charger_voltage = int(packet[5:7].hex(), base=16) / 10
         state.charger_current = int(packet[7:9].hex(), base=16) / 100
         state.charger_temp = packet[11]
         t = packet[12]
-        state.battery_temp = t if t < 128 else (128-t)
+        state.battery_temp = t if t < 128 else (128 - t)
         state.solar_panel_voltage = int(packet[19:21].hex(), base=16) / 10
         # today_peak_power = int(packet[21:23].hex(), base=16) # This can be calculated
         # today_charge_energy = int(packet[23:25].hex(), base=16) # These are wrong anyways
@@ -323,7 +332,6 @@ def decode_solar_charger_data(packet):
 
 async def monitor_charger():
     global ERROR_COUNT
-    global SOLAR_CHARGER
     while True:
         await asyncio.sleep(1)
         try:
@@ -331,19 +339,25 @@ async def monitor_charger():
                 continue
 
             last_sent = None
+
             def callback(sender: BleakGATTCharacteristic, data: bytearray):
+                nonlocal last_sent
                 log.debug(f" solar charger data: {sender}: {data.hex()}")
                 decode_solar_charger_data(data)
                 last_sent = None
 
             async with BT_LOCK:
-                #client = BleakClient(SOLAR_CHARGER_DEVICE, timeout=20)
+                # client = BleakClient(SOLAR_CHARGER_DEVICE, timeout=20)
                 log.info("Connecting to solar charger")
                 await SOLAR_CHARGER.connect(timeout=30)
                 await SOLAR_CHARGER.get_services()
-                model_number = await SOLAR_CHARGER.read_gatt_char(DEVICE_MODEL_CHARACTERISTIC_UUID)
+                model_number = await SOLAR_CHARGER.read_gatt_char(
+                    DEVICE_MODEL_CHARACTERISTIC_UUID
+                )
                 log.info(f"Solar charger model: {model_number}")
-                await SOLAR_CHARGER.start_notify(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, callback)
+                await SOLAR_CHARGER.start_notify(
+                    SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, callback
+                )
 
             # Periodically poll to make sure it's not just sitting with no data coming in
             while SOLAR_CHARGER is not None:
@@ -353,7 +367,11 @@ async def monitor_charger():
                     # If we get no response or a reply
                     last_sent = now
                     async with BT_LOCK:
-                        await SOLAR_CHARGER.write_gatt_char(SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID, SOLAR_CHARGER_HOME_DATA, response=False)
+                        await SOLAR_CHARGER.write_gatt_char(
+                            SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID,
+                            SOLAR_CHARGER_HOME_DATA,
+                            response=False,
+                        )
 
         except Exception as e:
             log.error("Error in monitor_charger:")
@@ -368,9 +386,6 @@ async def monitor_charger():
 
 
 async def snapshot_task():
-    global DB
-    global SOLAR_CHARGER
-    global BATTERY_MONITOR
     last_timestamp = 0
     state = State.instance()
     while True:
@@ -386,7 +401,6 @@ async def snapshot_task():
         except Exception as e:
             log.error("Error in snapshot_task:")
             log.exception(e)
-
 
 
 async def init_db():
@@ -413,9 +427,11 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            RotatingFileHandler("solarpi-monitor.log", maxBytes=5*1024*1000, backupCount=3),
-            logging.StreamHandler(sys.stdout)
-        ]
+            RotatingFileHandler(
+                "solarpi-monitor.log", maxBytes=5 * 1024 * 1000, backupCount=3
+            ),
+            logging.StreamHandler(sys.stdout),
+        ],
     )
     log.setLevel(logging.DEBUG)
     try:
@@ -423,19 +439,12 @@ async def main():
         await init_db()
         # await reset_bluetooth(5)
         await asyncio.gather(
-            scan_devices(),
-            monitor_battery(),
-            monitor_charger(),
-            snapshot_task()
+            scan_devices(), monitor_battery(), monitor_charger(), snapshot_task()
         )
     finally:
         await fini_db()
         config.save()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())
-
-
-
-

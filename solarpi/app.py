@@ -1,36 +1,33 @@
+import json
+import logging
 import os
 import sys
-import struct
-import asyncio
-import logging
-import json
-import aiosqlite
-import dataclasses
-from datetime import datetime, date, time, timedelta
-from typing import Any, ClassVar, Optional
+from datetime import date, datetime, time, timedelta
 from logging.handlers import RotatingFileHandler
+from typing import Any, Optional, cast
 
+import aiosqlite
 from aiohttp import web
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from . import config
 from .db import State
 
-env = Environment(
-    loader=PackageLoader("solarpi"),
-    autoescape=select_autoescape()
-)
+env = Environment(loader=PackageLoader("solarpi"), autoescape=select_autoescape())
 log = logging.getLogger("solarpi")
 
-
 routes = web.RouteTableDef()
-routes.static('/static', os.path.join(os.path.dirname(__file__), 'static'))
+routes.static("/static", os.path.join(os.path.dirname(__file__), "static"))
 
-
+DB: Optional[aiosqlite.Connection] = None
 ChartData = dict[str, Any]
 ChartDef = dict[str, Any]
+FormData = dict[str, Any]
+FormErrors = dict[str, str]
+
 
 async def load_energy_chart(d: date) -> ChartDef:
+    assert DB is not None
     dates = []
     last_state: Optional[State] = None
     solar_energy_output = []
@@ -41,11 +38,14 @@ async def load_energy_chart(d: date) -> ChartDef:
     for i in range(8, -1, -1):
         d = start - timedelta(days=i)
         # Exclude empty readings
-        async with DB.execute((
-            "SELECT * FROM solar "
-            "WHERE timestamp <= ? AND charger_total_energy > 0 AND battery_total_charge_energy > 0 AND battery_total_discharge_energy > 0 "
-            "ORDER BY timestamp DESC LIMIT 1"
-        ), (d.timestamp(),)) as cursor:
+        async with DB.execute(
+            (
+                "SELECT * FROM solar "
+                "WHERE timestamp <= ? AND charger_total_energy > 0 AND battery_total_charge_energy > 0 AND battery_total_discharge_energy > 0 "
+                "ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (d.timestamp(),),
+        ) as cursor:
             state: Optional[State] = None
             async for row in cursor:
                 state = State(*row)
@@ -54,16 +54,36 @@ async def load_energy_chart(d: date) -> ChartDef:
                     if state.charger_total_energy < last_state.charger_total_energy:
                         solar_energy_output.append(state.charger_total_energy)
                     else:
-                        solar_energy_output.append(state.charger_total_energy - last_state.charger_total_energy)
-                    if state.battery_total_discharge_energy < last_state.battery_total_discharge_energy:
-                        battery_discharge_energy.append(state.battery_total_discharge_energy)
+                        solar_energy_output.append(
+                            state.charger_total_energy - last_state.charger_total_energy
+                        )
+                    if (
+                        state.battery_total_discharge_energy
+                        < last_state.battery_total_discharge_energy
+                    ):
+                        battery_discharge_energy.append(
+                            state.battery_total_discharge_energy
+                        )
                     else:
-                        battery_discharge_energy.append(state.battery_total_discharge_energy - last_state.battery_total_discharge_energy)
-                    if state.battery_total_charge_energy < last_state.battery_total_charge_energy:
+                        battery_discharge_energy.append(
+                            state.battery_total_discharge_energy
+                            - last_state.battery_total_discharge_energy
+                        )
+                    if (
+                        state.battery_total_charge_energy
+                        < last_state.battery_total_charge_energy
+                    ):
                         battery_charge_energy.append(state.battery_total_charge_energy)
                     else:
-                        battery_charge_energy.append(state.battery_total_charge_energy - last_state.battery_total_charge_energy)
-                    inverter_energy.append(solar_energy_output[-1]-battery_charge_energy[-1]+battery_discharge_energy[-1])
+                        battery_charge_energy.append(
+                            state.battery_total_charge_energy
+                            - last_state.battery_total_charge_energy
+                        )
+                    inverter_energy.append(
+                        solar_energy_output[-1]
+                        - battery_charge_energy[-1]
+                        + battery_discharge_energy[-1]
+                    )
                     dates.append(d.date())
                 last_state = state
 
@@ -90,43 +110,43 @@ async def load_energy_chart(d: date) -> ChartDef:
                 "data": inverter_energy,
                 "borderWidth": 1,
             },
-        ]
+        ],
     }
     return {
-        "type": 'bar',
+        "type": "bar",
         "data": energy_chart_data,
         "options": {
-             "scales": {
-                 "y": {
-                     "beginAtZero": True,
-                 }
+            "scales": {
+                "y": {
+                    "beginAtZero": True,
+                }
             },
-        }
+        },
     }
 
 
 async def load_time_based_charts(
-    start_timestamp: int,
-    end_timestamp: Optional[int] = None
+    start_timestamp: int, end_timestamp: Optional[int] = None
 ) -> tuple[Optional[State], dict[str, ChartData]]:
     if end_timestamp is None:
         end_timestamp = int(datetime.now().timestamp())
+    assert DB is not None
+    timestamps: list[int] = []
+    battery_voltage: list[float] = []
+    battery_current: list[float] = []
+    battery_power: list[float] = []
+    charger_current: list[float] = []
+    charger_voltage: list[float] = []
+    charger_power: list[float] = []
+    inverter_current: list[float] = []
+    solar_voltage: list[float] = []
+    solar_current: list[float] = []
+    inverter_power: list[float] = []
+    battery_soc: list[float] = []
+    charger_temp: list[float] = []
+    battery_temp: list[float] = []
+    room_temp: list[float] = []
 
-    timestamps = []
-    battery_voltage = []
-    battery_current = []
-    battery_power = []
-    charger_current = []
-    charger_voltage = []
-    charger_power = []
-    inverter_current = []
-    solar_voltage = []
-    solar_current = []
-    inverter_power = []
-    battery_soc = []
-    charger_temp = []
-    battery_temp = []
-    room_temp = []
     voltages_chart_data = {
         "labels": timestamps,
         "datasets": [
@@ -165,7 +185,7 @@ async def load_time_based_charts(
                 "data": inverter_current,
                 "pointRadius": 0,
             },
-        ]
+        ],
     }
 
     power_chart_data = {
@@ -182,8 +202,8 @@ async def load_time_based_charts(
             {
                 "label": "Inverter Power (W)",
                 "data": inverter_power,
-            }
-        ]
+            },
+        ],
     }
 
     soc_chart_data = {
@@ -193,7 +213,7 @@ async def load_time_based_charts(
                 "label": "Battery State of Charge (Ah)",
                 "data": battery_soc,
             },
-        ]
+        ],
     }
 
     temp_chart_data = {
@@ -211,19 +231,22 @@ async def load_time_based_charts(
                 "label": "Room Temp (°C)",
                 "data": room_temp,
             },
-        ]
+        ],
     }
 
-    #data = []
+    # data = []
     state: Optional[State] = None
-    async with DB.execute((
-        "SELECT * FROM solar "
-        "WHERE timestamp >= ? AND timestamp <= ? "
-        "ORDER BY timestamp ASC LIMIT 86400"
-    ), (start_timestamp, end_timestamp)) as cursor:
+    async with DB.execute(
+        (
+            "SELECT * FROM solar "
+            "WHERE timestamp >= ? AND timestamp <= ? "
+            "ORDER BY timestamp ASC LIMIT 86400"
+        ),
+        (start_timestamp, end_timestamp),
+    ) as cursor:
         async for row in cursor:
             state = State(*row)
-            timestamps.append(state.timestamp*1000)
+            timestamps.append(state.timestamp * 1000)
             battery_voltage.append(state.battery_voltage)
             if state.battery_is_charging:
                 battery_current.append(state.battery_current)
@@ -250,10 +273,14 @@ async def load_time_based_charts(
         "voltages": voltages_chart_data,
     }
 
+
 @routes.get("/api/sidebar/")
 async def api_sidebar(request: web.Request):
+    assert DB is not None
     template = env.get_template("sidebar.html")
-    async with DB.execute("SELECT * FROM solar ORDER BY timestamp DESC LIMIT 1") as cursor:
+    async with DB.execute(
+        "SELECT * FROM solar ORDER BY timestamp DESC LIMIT 1"
+    ) as cursor:
         async for row in cursor:
             state = State(*row)
     content = template.render(state=state or State())
@@ -262,7 +289,7 @@ async def api_sidebar(request: web.Request):
 
 @routes.get(r"/api/charts/{t:\d+}/")
 async def api_charts(request: web.Request):
-    t = int(request.match_info['t'])
+    t = int(request.match_info["t"])
     state, data = await load_time_based_charts(t)
     if not state:
         return web.json_response({})
@@ -270,8 +297,8 @@ async def api_charts(request: web.Request):
 
 
 def line_chart(data: ChartData) -> ChartDef:
-     return {
-        "type": 'line',
+    return {
+        "type": "line",
         "data": data,
         "options": {
             "responsive": True,
@@ -280,21 +307,18 @@ def line_chart(data: ChartData) -> ChartDef:
             "spanGaps": True,
             "scales": {
                 "x": {
-                    "type": 'time',
+                    "type": "time",
                 }
             },
-            "datasets": {
-                "line": {
-                    "pointRadius": 0
-                }
-            },
+            "datasets": {"line": {"pointRadius": 0}},
             "plugins": {
                 "legend": {
-                    "position": 'top',
+                    "position": "top",
                 },
-            }
-        }
+            },
+        },
     }
+
 
 @routes.get("/")
 async def index(request: web.Request):
@@ -302,7 +326,7 @@ async def index(request: web.Request):
 
     d = datetime.now()
     try:
-        if date_str := request.query.get("d", ''):
+        if date_str := request.query.get("d", ""):
             day = datetime.strptime(date_str, "%Y-%m-%d").date()
             d = datetime.combine(day, d.time())
     except Exception as e:
@@ -310,43 +334,41 @@ async def index(request: web.Request):
 
     p = None
     try:
-        if peroid_str := request.query.get("p", ''):
+        if peroid_str := request.query.get("p", ""):
             p = int(peroid_str)
             assert 0 < p <= 1440
     except Exception as e:
         log.warning(f"Invalid time peroid: {e}")
 
     if p is None:
-        start_timestamp = datetime.combine(d.date(), time(0, 0)).timestamp()
-        end_timestamp = datetime.combine(d.date(), time(23, 59, 59)).timestamp()
+        start_timestamp = int(datetime.combine(d.date(), time(0, 0)).timestamp())
+        end_timestamp = int(datetime.combine(d.date(), time(23, 59, 59)).timestamp())
 
     else:
-        start_timestamp = (d - timedelta(minutes=p)).timestamp()
-        end_timestamp = d.timestamp()
+        start_timestamp = int((d - timedelta(minutes=p)).timestamp())
+        end_timestamp = int(d.timestamp())
 
     state, data = await load_time_based_charts(start_timestamp, end_timestamp)
     energy_chart = await load_energy_chart(d.date())
     content = template.render(
-        power_chart=json.dumps(line_chart(data['power'])),
-        voltages_chart=json.dumps(line_chart(data['voltages'])),
-        soc_chart=json.dumps(line_chart(data['soc'])),
-        temp_chart=json.dumps(line_chart(data['temp'])),
+        power_chart=json.dumps(line_chart(data["power"])),
+        voltages_chart=json.dumps(line_chart(data["voltages"])),
+        soc_chart=json.dumps(line_chart(data["soc"])),
+        temp_chart=json.dumps(line_chart(data["temp"])),
         energy_chart=json.dumps(energy_chart),
         selected_peroid=p,
         selected_date=d.date(),
-        is_today=d.date()==datetime.now().date(),
-        state=state or State()
+        is_today=d.date() == datetime.now().date(),
+        state=state or State(),
     )
     return web.Response(text=content, content_type="text/html")
 
 
-def validate_settings(data, errors) -> Optional[dict[str, Any]]:
+def validate_settings(data: FormData, errors: FormErrors) -> Optional[FormData]:
     try:
-        battery_capacity = int(data['battery_capacity'])
+        battery_capacity = int(data["battery_capacity"])
         assert battery_capacity > 0
-        return {
-            "battery_capacity": battery_capacity
-        }
+        return {"battery_capacity": battery_capacity}
     except Exception as e:
         errors["battery_capacity"] = "Battery capacity must be a non-zero number"
         log.exception(e)
@@ -358,11 +380,11 @@ def validate_settings(data, errors) -> Optional[dict[str, Any]]:
 async def settings_page(request: web.Request):
     template = env.get_template("settings.html")
     battery_capacity = State.battery_capacity
-    errors = {}
+    errors: FormErrors = {}
     if request.method == "POST":
-        data = await request.post()
+        data = cast(FormData, await request.post())
         if cleaned_data := validate_settings(data, errors):
-            battery_capacity = cleaned_data['battery_capacity']
+            battery_capacity = cleaned_data["battery_capacity"]
             config.save(battery_capacity=battery_capacity)
             return web.HTTPFound(location="/")
     content = template.render(battery_capacity=battery_capacity, errors=errors)
@@ -389,20 +411,21 @@ app.add_routes(routes)
 app.on_startup.append(on_startup)
 app.on_cleanup.append(on_cleanup)
 
+
 def main():
     logging.basicConfig(
         level=logging.WARNING,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            RotatingFileHandler("solarpi-web.log", maxBytes=5*1024*1000, backupCount=3),
-            logging.StreamHandler(sys.stdout)
-        ]
+            RotatingFileHandler(
+                "solarpi-web.log", maxBytes=5 * 1024 * 1000, backupCount=3
+            ),
+            logging.StreamHandler(sys.stdout),
+        ],
     )
     log.setLevel(logging.DEBUG)
     web.run_app(app, port=5000)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
-
-
-
