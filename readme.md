@@ -1,5 +1,15 @@
 # SolarPI
 
+Solarpi is an app to do datalogging of the junctec battery monitor and helios solar chargers via bluetooth.
+
+It's made for a raspberry pi zero 2w but should will work on any debian based system.
+
+![solarpi-web](docs/solarpi-screenshot.png)
+
+To view live data using just an android see [https://github.com/codelv/solar](solar).
+
+### About
+
 The app is split into two services, `solarpi-monitor` and `solarpi-web`. 
 
 The `solarpi-monitor` service connects to the battery monitor and charger via bluetooth, pulls/decodes the data, 
