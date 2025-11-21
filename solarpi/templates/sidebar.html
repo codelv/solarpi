@@ -24,8 +24,8 @@
 
     <ul class="list-group list-group-flush">
         <li class="list-group-item">
-            <small class="text-body-tertiary d-block">{% if state.battery_is_charging %}Charging{% else %}Dischargin{% endif %}</small>
-            <span class="{% if state.battery_is_charging %}text-info{% else %}text-danger{% endif %} fs-3">{% if not state.battery_is_charging %}-{% endif %}{{state.battery_power}} W</span>
+            <small class="text-body-tertiary d-block">{% if state.battery_is_charging %}Charging{% else %}Discharging{% endif %}</small>
+            <span class="{% if state.battery_is_charging %}text-info{% else %}text-danger{% endif %} fs-3">{{state.battery_power}} W</span>
             <div class="d-flex justify-content-between">
                 <div class="text-primary fw-light">{{state.battery_voltage}} V</div>
                 <div class="{% if state.battery_is_charging %}text-success{% else %}text-danger{% endif %} fw-light">
