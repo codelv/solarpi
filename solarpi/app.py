@@ -7,7 +7,7 @@ import json
 import aiosqlite
 import dataclasses
 from datetime import datetime, date, time, timedelta
-from typing import ClassVar, Optional
+from typing import Any, ClassVar, Optional
 from logging.handlers import RotatingFileHandler
 
 from aiohttp import web
@@ -26,7 +26,10 @@ routes = web.RouteTableDef()
 routes.static('/static', os.path.join(os.path.dirname(__file__), 'static'))
 
 
-async def load_energy_chart(d: date):
+ChartData = dict[str, Any]
+ChartDef = dict[str, Any]
+
+async def load_energy_chart(d: date) -> ChartDef:
     dates = []
     last_state: Optional[State] = None
     solar_energy_output = []
@@ -45,11 +48,20 @@ async def load_energy_chart(d: date):
             state: Optional[State] = None
             async for row in cursor:
                 state = State(*row)
-                log.warning(f"Date {d} {state}")
                 if last_state:
-                    solar_energy_output.append(max(0, state.charger_total_energy - last_state.charger_total_energy))
-                    battery_discharge_energy.append(max(0, state.battery_total_discharge_energy - last_state.battery_total_discharge_energy))
-                    battery_charge_energy.append(max(0, state.battery_total_charge_energy - last_state.battery_total_charge_energy))
+                    # These values should never go down, if they do assume that device was reset and cleared the reading
+                    if state.charger_total_energy < last_state.charger_total_energy:
+                        solar_energy_output.append(state.charger_total_energy)
+                    else:
+                        solar_energy_output.append(state.charger_total_energy - last_state.charger_total_energy)
+                    if state.battery_total_discharge_energy < last_state.battery_total_discharge_energy:
+                        battery_discharge_energy.append(state.battery_total_discharge_energy)
+                    else:
+                        battery_discharge_energy.append(state.battery_total_discharge_energy - last_state.battery_total_discharge_energy)
+                    if state.battery_total_charge_energy < last_state.battery_total_charge_energy:
+                        battery_charge_energy.append(state.battery_total_charge_energy)
+                    else:
+                        battery_charge_energy.append(state.battery_total_charge_energy - last_state.battery_total_charge_energy)
                     inverter_energy.append(solar_energy_output[-1]-battery_charge_energy[-1]+battery_discharge_energy[-1])
                     dates.append(d.date())
                 last_state = state
@@ -79,7 +91,6 @@ async def load_energy_chart(d: date):
             },
         ]
     }
-    log.warning(energy_chart_data)
     return {
         "type": 'bar',
         "data": energy_chart_data,
@@ -92,44 +103,13 @@ async def load_energy_chart(d: date):
         }
     }
 
-@routes.get("/api/sidebar/")
-async def sidebar(request: web.Request):
-    template = env.get_template("sidebar.html")
-    async with DB.execute("SELECT * FROM solar ORDER BY timestamp DESC LIMIT 1") as cursor:
-        async for row in cursor:
-            state = State(*row)
-    content = template.render(state=state or State())
-    return web.Response(text=content, content_type="text/html")
 
-
-@routes.get("/")
-async def index(request: web.Request):
-    template = env.get_template("index.html")
-
-    d = datetime.now()
-    try:
-        if date_str := request.query.get("d", ''):
-            day = datetime.strptime(date_str, "%Y-%m-%d").date()
-            d = datetime.combine(day, d.time())
-    except Exception as e:
-        log.warning(f"Invalid date query: {e}")
-
-    p = None
-    try:
-        if peroid_str := request.query.get("p", ''):
-            p = int(peroid_str)
-            assert p in (1, 3, 6, 12, 24)
-    except Exception as e:
-        log.warning(f"Invalid time peroid: {e}")
-
-    if p is None:
-        start_timestamp = datetime.combine(d.date(), time(0, 0)).timestamp()
-        end_timestamp = datetime.combine(d.date(), time(23, 59, 59)).timestamp()
-
-    else:
-        start_timestamp = (d - timedelta(hours=p)).timestamp()
-        end_timestamp = d.timestamp()
-
+async def load_time_based_charts(
+    start_timestamp: int,
+    end_timestamp: Optional[int] = None
+) -> tuple[Optional[State], dict[str, ChartData]]:
+    if end_timestamp is None:
+        end_timestamp = int(datetime.now().timestamp())
 
     timestamps = []
     battery_voltage = []
@@ -193,17 +173,14 @@ async def index(request: web.Request):
             {
                 "label": "Battery Power (W)",
                 "data": battery_power,
-                "pointRadius": 0,
             },
             {
                 "label": "Charger Power (W)",
                 "data": charger_power,
-                "pointRadius": 0,
             },
             {
                 "label": "Inverter Power (W)",
                 "data": inverter_power,
-                "pointRadius": 0,
             }
         ]
     }
@@ -214,7 +191,6 @@ async def index(request: web.Request):
             {
                 "label": "Battery State of Charge (Ah)",
                 "data": battery_soc,
-                "pointRadius": 0,
             },
         ]
     }
@@ -225,24 +201,25 @@ async def index(request: web.Request):
             {
                 "label": "Charger Temp (°C)",
                 "data": charger_temp,
-                "pointRadius": 0,
             },
             {
                 "label": "Battery Temp (°C)",
                 "data": battery_temp,
-                "pointRadius": 0,
             },
             {
                 "label": "Room Temp (°C)",
                 "data": room_temp,
-                "pointRadius": 0,
             },
         ]
     }
 
     #data = []
     state: Optional[State] = None
-    async with DB.execute("SELECT * FROM solar WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC", (start_timestamp, end_timestamp)) as cursor:
+    async with DB.execute((
+        "SELECT * FROM solar "
+        "WHERE timestamp >= ? AND timestamp <= ? "
+        "ORDER BY timestamp ASC LIMIT 86400"
+    ), (start_timestamp, end_timestamp)) as cursor:
         async for row in cursor:
             state = State(*row)
             timestamps.append(state.timestamp*1000)
@@ -265,12 +242,36 @@ async def index(request: web.Request):
             charger_temp.append(state.charger_temp)
             battery_temp.append(state.battery_temp)
             room_temp.append(state.room_temp)
+    return state, {
+        "power": power_chart_data,
+        "soc": soc_chart_data,
+        "temp": temp_chart_data,
+        "voltages": voltages_chart_data,
+    }
+
+@routes.get("/api/sidebar/")
+async def api_sidebar(request: web.Request):
+    template = env.get_template("sidebar.html")
+    async with DB.execute("SELECT * FROM solar ORDER BY timestamp DESC LIMIT 1") as cursor:
+        async for row in cursor:
+            state = State(*row)
+    content = template.render(state=state or State())
+    return web.Response(text=content, content_type="text/html")
 
 
+@routes.get(r"/api/charts/{t:\d+}/")
+async def api_charts(request: web.Request):
+    t = int(request.match_info['t'])
+    state, data = await load_time_based_charts(t)
+    if not state:
+        return web.json_response({})
+    return web.json_response(data)
 
-    power_chart = {
+
+def line_chart(data: ChartData) -> ChartDef:
+     return {
         "type": 'line',
-        "data": power_chart_data,
+        "data": data,
         "options": {
             "responsive": True,
             "normalized": True,
@@ -281,25 +282,9 @@ async def index(request: web.Request):
                     "type": 'time',
                 }
             },
-            "plugins": {
-                "legend": {
-                    "position": 'top',
-                },
-            }
-        }
-    }
-
-    voltages_chart = {
-        "type": 'line',
-        "data": voltages_chart_data,
-        "options": {
-            "responsive": True,
-            "normalized": True,
-            "animation": False,
-            "spanGaps": True,
-            "scales": {
-                "x": {
-                    "type": 'time',
+            "datasets": {
+                "line": {
+                    "pointRadius": 0
                 }
             },
             "plugins": {
@@ -310,54 +295,41 @@ async def index(request: web.Request):
         }
     }
 
-    soc_chart = {
-        "type": 'line',
-        "data": soc_chart_data,
-        "options": {
-            "responsive": True,
-            "normalized": True,
-            "animation": False,
-            "spanGaps": True,
-            "scales": {
-                "x": {
-                    "type": 'time',
-                }
-            },
-            "plugins": {
-                "legend": {
-                    "position": 'top',
-                },
-            }
-        }
-    }
+@routes.get("/")
+async def index(request: web.Request):
+    template = env.get_template("index.html")
 
-    temp_chart = {
-        "type": 'line',
-        "data": temp_chart_data,
-        "options": {
-            "responsive": True,
-            "normalized": True,
-            "animation": False,
-            "spanGaps": True,
-            "scales": {
-                "x": {
-                    "type": 'time',
-                }
-            },
-            "plugins": {
-                "legend": {
-                    "position": 'top',
-                },
-            }
-        }
-    }
+    d = datetime.now()
+    try:
+        if date_str := request.query.get("d", ''):
+            day = datetime.strptime(date_str, "%Y-%m-%d").date()
+            d = datetime.combine(day, d.time())
+    except Exception as e:
+        log.warning(f"Invalid date query: {e}")
 
+    p = None
+    try:
+        if peroid_str := request.query.get("p", ''):
+            p = int(peroid_str)
+            assert p in (1, 3, 6, 12, 24)
+    except Exception as e:
+        log.warning(f"Invalid time peroid: {e}")
+
+    if p is None:
+        start_timestamp = datetime.combine(d.date(), time(0, 0)).timestamp()
+        end_timestamp = datetime.combine(d.date(), time(23, 59, 59)).timestamp()
+
+    else:
+        start_timestamp = (d - timedelta(hours=p)).timestamp()
+        end_timestamp = d.timestamp()
+
+    state, data = await load_time_based_charts(start_timestamp, end_timestamp)
     energy_chart = await load_energy_chart(d.date())
     content = template.render(
-        power_chart=json.dumps(power_chart),
-        voltages_chart=json.dumps(voltages_chart),
-        soc_chart=json.dumps(soc_chart),
-        temp_chart=json.dumps(temp_chart),
+        power_chart=json.dumps(line_chart(data['power'])),
+        voltages_chart=json.dumps(line_chart(data['voltages'])),
+        soc_chart=json.dumps(line_chart(data['soc'])),
+        temp_chart=json.dumps(line_chart(data['temp'])),
         energy_chart=json.dumps(energy_chart),
         selected_peroid=p,
         selected_date=d.date(),
@@ -366,23 +338,17 @@ async def index(request: web.Request):
     return web.Response(text=content, content_type="text/html")
 
 
-async def init_db():
+async def on_startup(app):
     global DB
     log.info("Connecting to db...")
     DB = await aiosqlite.connect("solarpi.db")
 
-async def fini_db():
+
+async def on_cleanup(app):
     global DB
     if DB is not None:
         await DB.close()
         DB = None
-
-
-async def on_startup(app):
-    await init_db()
-
-async def on_cleanup(app):
-    await fini_db()
 
 
 app = web.Application()
