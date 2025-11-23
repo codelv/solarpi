@@ -128,6 +128,8 @@
                 if (!charts[key].chart) {
                     const ctx = document.getElementById(`${key}-chart`);
                     charts[key].chart = new Chart(ctx, charts[key].data);
+                } else {
+                    charts[key].chart.resize();
                 }
             });
         }

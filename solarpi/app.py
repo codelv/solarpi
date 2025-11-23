@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 from datetime import date, datetime, time, timedelta
-from logging.handlers import RotatingFileHandler
 from typing import Any, Optional, cast
 
 import aiosqlite
@@ -116,6 +115,8 @@ async def load_energy_chart(d: date) -> ChartDef:
         "type": "bar",
         "data": energy_chart_data,
         "options": {
+            "responsive": True,
+            "maintainAspectRatio": False,
             "scales": {
                 "y": {
                     "beginAtZero": True,
@@ -295,6 +296,8 @@ async def load_peaks_chart(d: date) -> ChartDef:
         "type": "bar",
         "data": peak_chart_data,
         "options": {
+            "responsive": True,
+            "maintainAspectRatio": False,
             "scales": {
                 "y": {
                     "beginAtZero": True,
@@ -483,6 +486,7 @@ def line_chart(data: ChartData) -> ChartDef:
             "responsive": True,
             "normalized": True,
             "animation": False,
+            "maintainAspectRatio": False,
             "spanGaps": True,
             "scales": {
                 "x": {
@@ -532,7 +536,11 @@ async def index(request: web.Request):
     peaks_chart = await load_peaks_chart(d.date())
 
     soc_chart = line_chart(data["soc"])
-    soc_chart["options"]["scales"]["y"] = {"beginAtZero": True}
+    soc_chart["options"]["scales"]["y"] = {
+        "beginAtZero": True,
+        "min": 0,
+        "max": State.battery_capacity,
+    }
 
     content = template.render(
         power_chart=json.dumps(line_chart(data["power"])),
@@ -602,9 +610,6 @@ def main():
         level=logging.WARNING,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            RotatingFileHandler(
-                "solarpi-web.log", maxBytes=5 * 1024 * 1000, backupCount=3
-            ),
             logging.StreamHandler(sys.stdout),
         ],
     )

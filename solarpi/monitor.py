@@ -2,7 +2,6 @@ import asyncio
 import logging
 import subprocess
 import sys
-from logging.handlers import RotatingFileHandler
 from time import time
 from typing import Optional
 
@@ -427,9 +426,6 @@ async def main():
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
-            RotatingFileHandler(
-                "solarpi-monitor.log", maxBytes=5 * 1024 * 1000, backupCount=3
-            ),
             logging.StreamHandler(sys.stdout),
         ],
     )

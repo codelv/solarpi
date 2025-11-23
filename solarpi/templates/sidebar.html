@@ -20,6 +20,17 @@
         <li class="list-group-item">Temp: {{state.charger_temp}} °C</li>
         <li class="list-group-item"><small class="text-body-tertiary d-block">Total Energy Output</small> {{ "%.3f"|format(state.charger_total_energy / 1000) }} kWh</li>
     </ul>
+    <h6>Inverter</h6>
+    <ul class="list-group list-group-flush">
+        <li class="list-group-item">
+            <small class="text-body-tertiary d-block">Power usage</small>
+            <span class="text-info  fs-3">{{state.inverter_power}} W</span>
+            <div class="d-flex justify-content-between">
+                <div class="text-primary fw-light">{{state.inverter_voltage}} V</div>
+                <div class="text-warning fw-light">{{state.inverter_current}} A</div>
+            </div>
+        </li>
+    </ul>
     <h6>Battery</h6>
 
     <ul class="list-group list-group-flush">

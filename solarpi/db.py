@@ -56,9 +56,9 @@ class State:
     def inverter_current(self):
         if self.battery_is_charging:
             # If charger outputs 14A and battery is charging at 10A, inverter is using 4A
-            return max(0, self.charger_current - self.battery_current)
+            return round(max(0, self.charger_current - self.battery_current), 2)
         # If charger outputs 4A and battery is discharging at 10A, inverter is using 14A
-        return self.charger_current + self.battery_current
+        return round(self.charger_current + self.battery_current, 2)
 
     @property
     def inverter_power(self):
