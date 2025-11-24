@@ -11,6 +11,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from . import config
 from .db import State
+from .utils import is_bt_addr
 
 env = Environment(loader=PackageLoader("solarpi"), autoescape=select_autoescape())
 log = logging.getLogger("solarpi")
@@ -558,14 +559,38 @@ async def index(request: web.Request):
 
 
 def validate_settings(data: FormData, errors: FormErrors) -> Optional[FormData]:
+    cleaned_data = {}
     try:
         battery_capacity = int(data["battery_capacity"])
         assert battery_capacity > 0
-        return {"battery_capacity": battery_capacity}
+        cleaned_data["battery_capacity"] = battery_capacity
     except Exception as e:
         errors["battery_capacity"] = "Battery capacity must be a non-zero number"
         log.exception(e)
         return None
+
+    try:
+        if addr := data["battery_monitor_addr"]:
+            assert is_bt_addr(addr)
+            cleaned_data["battery_monitor_addr"] = addr
+    except Exception as e:
+        errors["battery_monitor_addr"] = (
+            "Battery monitor address must be a bluetooth address"
+        )
+        log.exception(e)
+        return None
+    try:
+        if addr := data["solar_charger_addr"]:
+            assert is_bt_addr(addr)
+            cleaned_data["solar_charger_addr"] = addr
+    except Exception as e:
+        errors["solar_charger_addr"] = (
+            "Solar charger address must be a bluetooth address"
+        )
+        log.exception(e)
+        return None
+
+    return cleaned_data
 
 
 @routes.get("/settings/")
@@ -573,14 +598,20 @@ def validate_settings(data: FormData, errors: FormErrors) -> Optional[FormData]:
 async def settings_page(request: web.Request):
     template = env.get_template("settings.html")
     battery_capacity = State.battery_capacity
+    battery_monitor_addr = config.Config.battery_monitor_addr
+    solar_charger_addr = config.Config.solar_charger_addr
     errors: FormErrors = {}
     if request.method == "POST":
         data = cast(FormData, await request.post())
         if cleaned_data := validate_settings(data, errors):
-            battery_capacity = cleaned_data["battery_capacity"]
-            config.save(battery_capacity=battery_capacity)
+            config.save(**cleaned_data)
             return web.HTTPFound(location="/")
-    content = template.render(battery_capacity=battery_capacity, errors=errors)
+    content = template.render(
+        battery_capacity=battery_capacity,
+        battery_monitor_addr=battery_monitor_addr,
+        solar_charger_addr=solar_charger_addr,
+        errors=errors,
+    )
     return web.Response(text=content, content_type="text/html")
 
 

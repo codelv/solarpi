@@ -78,7 +78,6 @@ class State:
 
     def update_timestamp(self):
         self.timestamp = int(time())
-        log.debug(f"State updated {self}")
 
     def insert_values_sql(self):
         return f"INSERT INTO solar VALUES {self.values()};"

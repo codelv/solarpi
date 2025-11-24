@@ -17,6 +17,10 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "solarpi.json")
 @dataclasses.dataclass
 class Config:
     battery_capacity: float = 600
+    # 54:14:A7:53:14:E9 BTG964
+    battery_monitor_addr: Optional[str] = "54:14:A7:53:14:E9"
+    # C8:47:80:0D:2C:6A ChargePro
+    solar_charger_addr: Optional[str] = "C8:47:80:0D:2C:6A"
 
 
 CONFIG: Optional[Config] = None  # noqa: F824
