@@ -3,6 +3,10 @@ rm -f /etc/nginx/sites-enabled/default
 ln -s /etc/nginx/sites-available/solarpi.conf /etc/nginx/sites-enabled/solarpi
 service nginx reload
 
+# Enable bluetooth
+systemctl enable bluetooth
+rfkill unblock bluetooth
+
 # Enable solarpi services
 systemctl daemon-reload
 systemctl enable solarpi-monitor.service

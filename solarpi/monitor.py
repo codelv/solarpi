@@ -326,12 +326,6 @@ async def monitor_battery():
                     BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data
                 )
 
-                last_sent = time()
-                await BATTERY_MONITOR.write_gatt_char(
-                    BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID,
-                    BATTERY_MONITOR_REFRESH,
-                )
-
             # Periodically poll to make sure it's not just sitting with no data coming in
             # DO NOT SEND immeidately or it screws up the connection
             last_sent = time()
