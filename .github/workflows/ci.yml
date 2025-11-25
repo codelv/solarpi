@@ -1,0 +1,42 @@
+name: CI
+on: [push]
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.13']
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup python ${{ matrix.python-version}}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build deb
+        run: python build.py
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: solarpi
+          path: dist/
+  check-code:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.13']
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup python ${{ matrix.python-version}}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install -U mypy black isort flake8
+      - name: Run checks
+        run: |
+            isort solarpi --check --diff
+            black solarpi --check --diff
+            mypy solarpi --ignore-missing-imports
+            flake8 --ignore=E501,W503,E203 solarpi
+
+
