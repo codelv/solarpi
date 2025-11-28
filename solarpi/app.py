@@ -19,6 +19,7 @@ log = logging.getLogger("solarpi")
 routes = web.RouteTableDef()
 routes.static("/static", os.path.join(os.path.dirname(__file__), "static"))
 
+DB_FILE = "solarpi.db"
 DB: Optional[aiosqlite.Connection] = None
 ChartData = dict[str, Any]
 ChartDef = dict[str, Any]
@@ -35,7 +36,7 @@ async def load_energy_chart(d: date) -> ChartDef:
     battery_charge_energy = []
     inverter_energy = []
     start = datetime.combine(d, time(23, 59, 59))
-    for i in range(8, -1, -1):
+    for i in range(11, -1, -1):
         d = start - timedelta(days=i)
         # Exclude empty readings
         async with DB.execute(
@@ -479,6 +480,11 @@ async def api_charts(request: web.Request):
     return web.json_response(data)
 
 
+@routes.get(r"/solarpi.db")
+async def export_db(request: web.Request):
+    return web.FileResponse(DB_FILE)
+
+
 def line_chart(data: ChartData) -> ChartDef:
     return {
         "type": "line",
@@ -598,8 +604,8 @@ def validate_settings(data: FormData, errors: FormErrors) -> Optional[FormData]:
 async def settings_page(request: web.Request):
     template = env.get_template("settings.html")
     battery_capacity = State.battery_capacity
-    battery_monitor_addr = config.Config.battery_monitor_addr
-    solar_charger_addr = config.Config.solar_charger_addr
+    battery_monitor_addr = config.CONFIG.battery_monitor_addr
+    solar_charger_addr = config.CONFIG.solar_charger_addr
     errors: FormErrors = {}
     if request.method == "POST":
         data = cast(FormData, await request.post())
@@ -619,7 +625,7 @@ async def on_startup(app):
     global DB
     config.load()
     log.info("Connecting to db...")
-    DB = await aiosqlite.connect("solarpi.db")
+    DB = await aiosqlite.connect(DB_FILE)
 
 
 async def on_cleanup(app):

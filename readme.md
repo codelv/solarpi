@@ -1,6 +1,7 @@
 # SolarPI
 
-Solarpi is a simple python app to do datalogging of the junctec battery monitor and helios solar chargers via bluetooth.
+Solarpi is a simple self-hosted python app to do datalogging of the Junctec battery monitor 
+and Helios solar chargers via bluetooth.
 
 It's made for a raspberry pi should will work on any debian based system.
 

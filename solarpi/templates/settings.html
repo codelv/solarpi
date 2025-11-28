@@ -13,22 +13,31 @@
                     <p class="text-danger">{{errors.battery_capacity}}</p>
                     {% endif %}
                 </div>
+
+                <h6>Bluetooth addresses</h6>
+                <p class="text-muted">Leave blank to auto detect based on service IDs.</p>
                 <div class="mb-3">
-                    <label class="form-label">Solar Charger Bluetooth Address</label>
-                    <input class="form-control" name="solar_charger_addr" value={{solar_charger_addr}} type="number" min="0"> </input>
+                    <label class="form-label">Solar Charger</label>
+                    <input class="form-control" name="solar_charger_addr" value={{solar_charger_addr}} type="text"> </input>
                     {% if errors.solar_charger_addr %}
                     <p class="text-danger">{{errors.solar_charger_addr}}</p>
                     {% endif %}
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Battery Monitor Bluetooth Address</label>
-                    <input class="form-control" name="battery_monitor_addr" value={{battery_monitor_addr}} type="number" min="0"> </input>
+                    <label class="form-label">Battery Monitor</label>
+                    <input class="form-control" name="battery_monitor_addr" value={{battery_monitor_addr}} type="text"> </input>
                     {% if errors.battery_monitor_addr %}
                     <p class="text-danger">{{errors.battery_monitor_addr}}</p>
                     {% endif %}
                 </div>
-                <div class="mb-3">
-                    <button type="submit" class="btn btn-primary">Save</button>
+                <div class="d-flex justify-content-between">
+                    <div class="mb-3">
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <a href="/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                    <div>
+                        <a href="/solarpi.db" class="btn btn-info">Export database</a>
+                    </div>
                 </div>
             </form>
         </div>
