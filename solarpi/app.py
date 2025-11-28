@@ -604,8 +604,10 @@ def validate_settings(data: FormData, errors: FormErrors) -> Optional[FormData]:
 async def settings_page(request: web.Request):
     template = env.get_template("settings.html")
     battery_capacity = State.battery_capacity
-    battery_monitor_addr = config.CONFIG.battery_monitor_addr
-    solar_charger_addr = config.CONFIG.solar_charger_addr
+    cfg = config.CONFIG
+    assert cfg is not None
+    battery_monitor_addr = cfg.battery_monitor_addr
+    solar_charger_addr = cfg.solar_charger_addr
     errors: FormErrors = {}
     if request.method == "POST":
         data = cast(FormData, await request.post())
