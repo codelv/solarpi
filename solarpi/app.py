@@ -510,10 +510,16 @@ def line_chart(data: ChartData) -> ChartDef:
     }
 
 
+START_OPTIONS = (("", "Before now"),) + tuple(
+    (60 * i, f"After {time(i, 0).strftime("%-I %p")}") for i in range(0, 24)
+)
+
+
 @routes.get("/")
 async def index(request: web.Request):
     template = env.get_template("index.html")
 
+    # Date
     d = datetime.now()
     try:
         if date_str := request.query.get("d", ""):
@@ -522,6 +528,16 @@ async def index(request: web.Request):
     except Exception as e:
         log.warning(f"Invalid date query: {e}")
 
+    # Start time
+    s = None
+    try:
+        if start_str := request.query.get("s", ""):
+            s = int(start_str)
+            assert 0 < s <= 1440
+    except Exception as e:
+        log.warning(f"Invalid start time: {e}")
+
+    # Time peroid
     p = None
     try:
         if peroid_str := request.query.get("p", ""):
@@ -533,10 +549,13 @@ async def index(request: web.Request):
     if p is None:
         start_timestamp = int(datetime.combine(d.date(), time(0, 0)).timestamp())
         end_timestamp = int(datetime.combine(d.date(), time(23, 59, 59)).timestamp())
-
-    else:
+    elif s is None:
         start_timestamp = int((d - timedelta(minutes=p)).timestamp())
         end_timestamp = int(d.timestamp())
+    else:
+        t0 = datetime.combine(d.date(), time(int(s / 60), s % 60))
+        start_timestamp = int(t0.timestamp())
+        end_timestamp = int((t0 + timedelta(minutes=p)).timestamp())
 
     state, data = await load_time_based_charts(start_timestamp, end_timestamp)
     energy_chart = await load_energy_chart(d.date())
@@ -556,8 +575,24 @@ async def index(request: web.Request):
         temp_chart=json.dumps(line_chart(data["temp"])),
         energy_chart=json.dumps(energy_chart),
         peaks_chart=json.dumps(peaks_chart),
+        peroid_options=(
+            ("", "Day"),
+            (1440, "24 hrs"),
+            (720, "12 hrs"),
+            (360, "6 hrs"),
+            (240, "4 hrs"),
+            (180, "3 hrs"),
+            (120, "2 hrs"),
+            (60, "1 hr"),
+            (30, "30 min"),
+            (15, "15 min"),
+            (10, "10 min"),
+            (5, "5 min"),
+        ),
         selected_peroid=p,
         selected_date=d.date(),
+        start_options=START_OPTIONS,
+        selected_start=s,
         is_today=d.date() == datetime.now().date(),
         state=state or State(),
     )

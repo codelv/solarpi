@@ -13,16 +13,14 @@
         <a class="btn btn-link text-decoration-none me-2" href="/settings/">Settings</a>
         <form method="GET" accept-charset="utf-8" class="d-flex">
             <select name="p" class="form-select me-2"  onchange="this.form.submit()"/>
-                <option value="" {% if not selected_peroid %}selected{% endif %}>Day</option>
-                <option value="1440" {% if selected_peroid == 1440 %}selected{% endif %}>24 hrs</option>
-                <option value="720" {% if selected_peroid == 720 %}selected{% endif %}>12 hrs</option>
-                <option value="360" {% if selected_peroid == 360 %}selected{% endif %}>6 hrs</option>
-                <option value="180" {% if selected_peroid == 180 %}selected{% endif %}>3 hrs</option>
-                <option value="60" {% if selected_peroid == 60 %}selected{% endif %}>1 hr</option>
-                <option value="30" {% if selected_peroid == 30 %}selected{% endif %}>30 min</option>
-                <option value="15" {% if selected_peroid == 15 %}selected{% endif %}>15 min</option>
-                <option value="10" {% if selected_peroid == 10 %}selected{% endif %}>10 min</option>
-                <option value="5" {% if selected_peroid == 5 %}selected{% endif %}>5 min</option>
+                {% for v, t in peroid_options %}
+                    <option value="{{v}}" {% if selected_peroid == v %}selected{% endif %}>{{t}}</option>
+                {% endfor %}
+            </select>
+            <select name="s" class="form-select me-2"  onchange="this.form.submit()"/>
+                {% for v, t in start_options %}
+                    <option value="{{v}}" {% if selected_start == v %}selected{% endif %}>{{t}}</option>
+                {% endfor %}
             </select>
             <input name="d" class="form-control" type="date" value="{{selected_date}}" onchange="this.form.submit()"/>
         </form>
@@ -198,7 +196,7 @@
                 await sleep(5000);
             }
         }
-        {% if is_today %}
+        {% if is_today and not selected_start %}
             setTimeout(updateCharts, 5000);
         {% endif %}
     </script>
