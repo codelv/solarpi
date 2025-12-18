@@ -54,13 +54,28 @@
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="energy-tab" data-bs-toggle="pill" data-bs-target="#energy-tab-content" type="button" role="tab" aria-controls="energy-tab-content" aria-selected="false">
+                            <button class="nav-link" id="energydaily-tab" data-bs-toggle="pill" data-bs-target="#energydaily-tab-content" type="button" role="tab" aria-controls="energydaily-tab-content" aria-selected="false">
                                 Daily Energy Production
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="peaks-tab" data-bs-toggle="pill" data-bs-target="#peaks-tab-content" type="button" role="tab" aria-controls="peaks-tab-content" aria-selected="false">
-                                Daily Peak Power & Current
+                            <button class="nav-link" id="energyweekly-tab" data-bs-toggle="pill" data-bs-target="#energyweekly-tab-content" type="button" role="tab" aria-controls="energyweekly-tab-content" aria-selected="false">
+                                Weekly Energy Production
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="peakpower-tab" data-bs-toggle="pill" data-bs-target="#peakpower-tab-content" type="button" role="tab" aria-controls="peakpower-tab-content" aria-selected="false">
+                                Daily Peak Power
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="peakcurrent-tab" data-bs-toggle="pill" data-bs-target="#peakcurrent-tab-content" type="button" role="tab" aria-controls="peakcurrent-tab-content" aria-selected="false">
+                                Daily Peak Current
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="battery-tab" data-bs-toggle="pill" data-bs-target="#battery-tab-content" type="button" role="tab" aria-controls="battery-tab-content" aria-selected="false">
+                                Hourly Battery SOC
                             </button>
                         </li>
                     </ul>
@@ -77,11 +92,20 @@
                         <div class="tab-pane chart-tab fade" id="soc-tab-content" role="tabpanel" aria-labelledby="soc-tab" tabindex="0">
                             <canvas id="soc-chart"></canvas>
                         </div>
-                        <div class="tab-pane chart-tab fade" id="energy-tab-content" role="tabpanel" aria-labelledby="energy-tab" tabindex="0">
-                            <canvas id="energy-chart"></canvas>
+                        <div class="tab-pane chart-tab fade" id="energydaily-tab-content" role="tabpanel" aria-labelledby="energydaily-tab" tabindex="0">
+                            <canvas id="energydaily-chart"></canvas>
                         </div>
-                        <div class="tab-pane chart-tab fade" id="peaks-tab-content" role="tabpanel" aria-labelledby="peaks-tab" tabindex="0">
-                            <canvas id="peaks-chart"></canvas>
+                        <div class="tab-pane chart-tab fade" id="energyweekly-tab-content" role="tabpanel" aria-labelledby="energyweekly-tab" tabindex="0">
+                            <canvas id="energyweekly-chart"></canvas>
+                        </div>
+                        <div class="tab-pane chart-tab fade" id="peakpower-tab-content" role="tabpanel" aria-labelledby="peakpower-tab" tabindex="0">
+                            <canvas id="peakpower-chart"></canvas>
+                        </div>
+                        <div class="tab-pane chart-tab fade" id="peakcurrent-tab-content" role="tabpanel" aria-labelledby="peakcurrent-tab" tabindex="0">
+                            <canvas id="peakcurrent-chart"></canvas>
+                        </div>
+                        <div class="tab-pane chart-tab fade" id="battery-tab-content" role="tabpanel" aria-labelledby="battery-tab" tabindex="0">
+                            <canvas id="battery-chart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -112,22 +136,34 @@
                 chart: null,
                 data: {{temp_chart|safe}},
             },
-            energy: {
+            energydaily: {
                 chart: null,
-                data: {{energy_chart|safe}},
+                url: '/api/chart/energy-daily/',
             },
-            peaks: {
+            energyweekly: {
                 chart: null,
-                data: {{peaks_chart|safe}},
+                url: '/api/chart/energy-weekly/',
+            },
+            peakpower: {
+                chart: null,
+                url: '/api/chart/peak-power/',
+            },
+            peakcurrent: {
+                chart: null,
+                url: '/api/chart/peak-current/',
+            },
+            battery: {
+                chart: null,
+                url: '/api/chart/battery-hourly/',
             },
         };
         for (let key in charts) {
             document.getElementById(`${key}-tab`).addEventListener('shown.bs.tab', event => {
-                if (!charts[key].chart) {
-                    const ctx = document.getElementById(`${key}-chart`);
-                    charts[key].chart = new Chart(ctx, charts[key].data);
+                const entry = charts[key];
+                if (!entry.chart) {
+                    loadChart(key);
                 } else {
-                    charts[key].chart.resize();
+                    entry.chart.resize();
                 }
             });
         }
@@ -136,6 +172,17 @@
 
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function loadChart(key) {
+            const entry = charts[key];
+            const t = {{state.timestamp}};
+            const ctx = document.getElementById(`${key}-chart`);
+            if (!entry.data) {
+                const r = await fetch(`${entry.url}${t}/`);
+                entry.data = await r.json();
+            }
+            entry.chart = new Chart(ctx, entry.data);
         }
 
         async function updateSidebar() {

@@ -27,7 +27,7 @@ FormData = dict[str, Any]
 FormErrors = dict[str, str]
 
 
-async def load_energy_chart(d: date) -> ChartDef:
+async def load_energy_chart(d: date, period: str = "daily") -> ChartDef:
     assert DB is not None
     dates = []
     last_state: Optional[State] = None
@@ -35,9 +35,17 @@ async def load_energy_chart(d: date) -> ChartDef:
     battery_discharge_energy = []
     battery_charge_energy = []
     inverter_energy = []
+
+    if period == "daily":
+        num_days = 1
+    elif period == "weekly":
+        num_days = 7
+    else:
+        raise ValueError(f"Invalid period: {period}")
+
     start = datetime.combine(d, time(23, 59, 59))
     for i in range(11, -1, -1):
-        d = start - timedelta(days=i)
+        d = start - timedelta(days=i*num_days)
         # Exclude empty readings
         async with DB.execute(
             (
@@ -88,8 +96,15 @@ async def load_energy_chart(d: date) -> ChartDef:
                     dates.append(d.date())
                 last_state = state
 
+    if period == "daily":
+        labels = [str(d) for d in dates]
+    elif period == "weekly":
+        labels = [f"{d} to {d+timedelta(days=6)}" for d in dates]
+    else:
+        raise NotImplementedError()
+
     energy_chart_data = {
-        "labels": [str(d) for d in dates],
+        "labels": labels,
         "datasets": [
             {
                 "label": "Solar energy output (kWh)",
@@ -128,17 +143,14 @@ async def load_energy_chart(d: date) -> ChartDef:
     }
 
 
-async def load_peaks_chart(d: date) -> ChartDef:
+
+async def load_peak_power_chart(d: date) -> ChartDef:
     assert DB is not None
     dates = []
     peak_battery_charge_power = []
     peak_battery_discharge_power = []
-    peak_battery_charge_current = []
-    peak_battery_discharge_current = []
     peak_solar_power = []
     peak_inverter_power = []
-    peak_inverter_current = []
-    peak_charger_current = []
 
     start = datetime.combine(d, time(12, 0))
     for i in range(8, -1, -1):
@@ -158,18 +170,6 @@ async def load_peaks_chart(d: date) -> ChartDef:
                 peak_solar_power.append(row[0])
             else:
                 peak_solar_power.append(0)
-
-        async with DB.execute(
-            (
-                "SELECT MAX(charger_current) FROM solar "
-                "WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
-            ),
-            (st, et),
-        ) as cursor:
-            if row := await cursor.fetchone():
-                peak_charger_current.append(row[0])
-            else:
-                peak_charger_current.append(0)
 
         async with DB.execute(
             (
@@ -209,6 +209,73 @@ async def load_peaks_chart(d: date) -> ChartDef:
                 peak_inverter_power.append(row[0])
             else:
                 peak_inverter_power.append(0)
+
+    peak_chart_data = {
+        "labels": [str(d) for d in dates],
+        "datasets": [
+            {
+                "label": "Peak solar power (W)",
+                "data": peak_solar_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak battery charge power (W)",
+                "data": peak_battery_charge_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak battery discharge power (W)",
+                "data": peak_battery_discharge_power,
+                "borderWidth": 1,
+            },
+            {
+                "label": "Peak inverter power (W)",
+                "data": peak_inverter_power,
+                "borderWidth": 1,
+            },
+        ],
+    }
+    return {
+        "type": "bar",
+        "data": peak_chart_data,
+        "options": {
+            "responsive": True,
+            "maintainAspectRatio": False,
+            "scales": {
+                "y": {
+                    "beginAtZero": True,
+                }
+            },
+        },
+    }
+
+
+async def load_peak_current_chart(d: date) -> ChartDef:
+    assert DB is not None
+    dates = []
+    peak_battery_charge_current = []
+    peak_battery_discharge_current = []
+    peak_inverter_current = []
+    peak_charger_current = []
+
+    start = datetime.combine(d, time(12, 0))
+    for i in range(8, -1, -1):
+        d = (start - timedelta(days=i)).date()
+        st = datetime.combine(d, time(0, 0)).timestamp()
+        et = datetime.combine(d, time(23, 59, 59)).timestamp()
+        dates.append(d)
+
+        async with DB.execute(
+            (
+                "SELECT MAX(charger_current) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st, et),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                peak_charger_current.append(row[0])
+            else:
+                peak_charger_current.append(0)
 
         async with DB.execute(
             (
@@ -253,38 +320,18 @@ async def load_peaks_chart(d: date) -> ChartDef:
         "labels": [str(d) for d in dates],
         "datasets": [
             {
-                "label": "Peak solar power (W)",
-                "data": peak_solar_power,
-                "borderWidth": 1,
-            },
-            {
-                "label": "Peak battery charge power (W)",
-                "data": peak_battery_charge_power,
-                "borderWidth": 1,
-            },
-            {
-                "label": "Peak battery discharge power (W)",
-                "data": peak_battery_discharge_power,
-                "borderWidth": 1,
-            },
-            {
-                "label": "Peak inverter power (W)",
-                "data": peak_inverter_power,
-                "borderWidth": 1,
-            },
-            {
                 "label": "Peak charger current (A)",
                 "data": peak_charger_current,
                 "borderWidth": 1,
             },
             {
-                "label": "Peak battery charge current (A)",
-                "data": peak_battery_charge_current,
+                "label": "Peak battery discharge current (A)",
+                "data": peak_battery_discharge_current,
                 "borderWidth": 1,
             },
             {
-                "label": "Peak battery discharge current (A)",
-                "data": peak_battery_discharge_current,
+                "label": "Peak battery charge current (A)",
+                "data": peak_battery_charge_current,
                 "borderWidth": 1,
             },
             {
@@ -301,6 +348,55 @@ async def load_peaks_chart(d: date) -> ChartDef:
             "responsive": True,
             "maintainAspectRatio": False,
             "scales": {
+                "y": {
+                    "beginAtZero": True,
+                }
+            },
+        },
+    }
+
+
+async def load_battery_soc_chart(d: date, period: str = "hourly") -> ChartDef:
+    assert DB is not None
+    labels = []
+    battery_soc = []
+
+    et = datetime.combine(d, time(23, 59))
+    for i in range(24*7):
+        st = et - timedelta(minutes=59)
+        async with DB.execute(
+            (
+                "SELECT AVG(battery_ah) FROM solar "
+                "WHERE timestamp >= ? AND timestamp <= ? AND battery_ah > 0 ORDER BY timestamp DESC LIMIT 1"
+            ),
+            (st.timestamp(), et.timestamp()),
+        ) as cursor:
+            if row := await cursor.fetchone():
+                labels.insert(0, st.strftime("%a %-I %p"))
+                battery_soc.insert(0, row[0])
+        et -= timedelta(hours=1)
+
+    chart_data = {
+        "labels": labels,
+        "datasets": [
+            {
+                "label": "Battery SOC (ah)",
+                "data": battery_soc,
+                "fill": "origin",
+                "borderWidth": 1,
+            },
+        ],
+    }
+    return {
+        "type": "line",
+        "data": chart_data,
+        "options": {
+            "responsive": True,
+            "maintainAspectRatio": False,
+            "scales": {
+                #"x": {
+                #    "type": "time",
+                #},
                 "y": {
                     "beginAtZero": True,
                 }
@@ -396,6 +492,7 @@ async def load_time_based_charts(
             {
                 "label": "Battery State of Charge (Ah)",
                 "data": battery_soc,
+                "fill": 'origin',
             },
         ],
     }
@@ -480,6 +577,37 @@ async def api_charts(request: web.Request):
     return web.json_response(data)
 
 
+@routes.get(r"/api/chart/energy-{p:(daily|weekly)}/{t:\d+}/")
+async def api_chart_energy(request: web.Request):
+    t = int(request.match_info["t"])
+    d = datetime.fromtimestamp(t).date()
+    data = await load_energy_chart(d, request.match_info["p"])
+    return web.json_response(data)
+
+
+@routes.get(r"/api/chart/battery-{p:(hourly|daily)}/{t:\d+}/")
+async def api_chart_battery(request: web.Request):
+    t = int(request.match_info["t"])
+    d = datetime.fromtimestamp(t).date()
+    data = await load_battery_soc_chart(d, request.match_info["p"])
+    return web.json_response(data)
+
+@routes.get(r"/api/chart/peak-power/{t:\d+}/")
+async def api_chart_peak_power(request: web.Request):
+    t = int(request.match_info["t"])
+    d = datetime.fromtimestamp(t).date()
+    data = await load_peak_power_chart(d)
+    return web.json_response(data)
+
+
+@routes.get(r"/api/chart/peak-current/{t:\d+}/")
+async def api_chart_peak_current(request: web.Request):
+    t = int(request.match_info["t"])
+    d = datetime.fromtimestamp(t).date()
+    data = await load_peak_current_chart(d)
+    return web.json_response(data)
+
+
 @routes.get(r"/solarpi.db")
 async def export_db(request: web.Request):
     return web.FileResponse(DB_FILE)
@@ -558,8 +686,6 @@ async def index(request: web.Request):
         end_timestamp = int((t0 + timedelta(minutes=p)).timestamp())
 
     state, data = await load_time_based_charts(start_timestamp, end_timestamp)
-    energy_chart = await load_energy_chart(d.date())
-    peaks_chart = await load_peaks_chart(d.date())
 
     soc_chart = line_chart(data["soc"])
     soc_chart["options"]["scales"]["y"] = {
@@ -573,8 +699,6 @@ async def index(request: web.Request):
         voltages_chart=json.dumps(line_chart(data["voltages"])),
         soc_chart=json.dumps(soc_chart),
         temp_chart=json.dumps(line_chart(data["temp"])),
-        energy_chart=json.dumps(energy_chart),
-        peaks_chart=json.dumps(peaks_chart),
         peroid_options=(
             ("", "Day"),
             (1440, "24 hrs"),

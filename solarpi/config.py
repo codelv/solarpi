@@ -21,6 +21,7 @@ class Config:
     battery_monitor_addr: Optional[str] = ""
     # C8:47:80:0D:2C:6A ChargePro
     solar_charger_addr: Optional[str] = ""
+    solar_charger_type: Optional[str] = ""
 
 
 CONFIG: Optional[Config] = None  # noqa: F824

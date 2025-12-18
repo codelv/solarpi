@@ -20,6 +20,7 @@ class State:
     battery_total_discharge_energy: float = 0
 
     solar_panel_voltage: float = 0
+    solar_panel_current: float = 0
     charger_voltage: float = 0
     charger_current: float = 0
     charger_temp: float = 0
@@ -28,12 +29,6 @@ class State:
     room_temp: float = 0
 
     _instance: ClassVar[Optional["State"]] = None
-
-    @property
-    def solar_panel_current(self):
-        if v := self.solar_panel_voltage:
-            return round(self.charger_voltage / v * self.charger_current, 2)
-        return 0
 
     @property
     def battery_power(self):
