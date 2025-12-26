@@ -1,6 +1,7 @@
 import re
 import struct
 
+
 def is_bt_addr(addr: str) -> bool:
     pattern = r"[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"
     return re.match(pattern, addr, re.IGNORECASE) is not None
@@ -17,7 +18,7 @@ def unpack_u32(data: bytearray) -> int:
 
 
 def add_lecrc16(data: bytearray) -> bytearray:
-    """ Create a copy of data with a little endian crc16 to the array"""
+    """Create a copy of data with a little endian crc16 to the array"""
     # Add a crc to the buffer
     crc = modbus_crc16(data)
     copy = data[:]
@@ -27,7 +28,7 @@ def add_lecrc16(data: bytearray) -> bytearray:
 
 
 def modbus_crc16(data: bytearray) -> int:
-    """ Compute a crc16 """
+    """Compute a crc16"""
     crc = 0xFFFF
     for it in data:
         crc ^= it

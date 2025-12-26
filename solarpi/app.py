@@ -45,7 +45,7 @@ async def load_energy_chart(d: date, period: str = "daily") -> ChartDef:
 
     start = datetime.combine(d, time(23, 59, 59))
     for i in range(11, -1, -1):
-        d = start - timedelta(days=i*num_days)
+        d = start - timedelta(days=i * num_days)
         # Exclude empty readings
         async with DB.execute(
             (
@@ -141,7 +141,6 @@ async def load_energy_chart(d: date, period: str = "daily") -> ChartDef:
             },
         },
     }
-
 
 
 async def load_peak_power_chart(d: date) -> ChartDef:
@@ -358,11 +357,11 @@ async def load_peak_current_chart(d: date) -> ChartDef:
 
 async def load_battery_soc_chart(d: date, period: str = "hourly") -> ChartDef:
     assert DB is not None
-    labels = []
-    battery_soc = []
+    labels: list[str] = []
+    battery_soc: list[float] = []
 
     et = datetime.combine(d, time(23, 59))
-    for i in range(24*7):
+    for i in range(24 * 7):
         st = et - timedelta(minutes=59)
         async with DB.execute(
             (
@@ -394,9 +393,9 @@ async def load_battery_soc_chart(d: date, period: str = "hourly") -> ChartDef:
             "responsive": True,
             "maintainAspectRatio": False,
             "scales": {
-                #"x": {
+                # "x": {
                 #    "type": "time",
-                #},
+                # },
                 "y": {
                     "beginAtZero": True,
                 }
@@ -492,7 +491,7 @@ async def load_time_based_charts(
             {
                 "label": "Battery State of Charge (Ah)",
                 "data": battery_soc,
-                "fill": 'origin',
+                "fill": "origin",
             },
         ],
     }
@@ -591,6 +590,7 @@ async def api_chart_battery(request: web.Request):
     d = datetime.fromtimestamp(t).date()
     data = await load_battery_soc_chart(d, request.match_info["p"])
     return web.json_response(data)
+
 
 @routes.get(r"/api/chart/peak-power/{t:\d+}/")
 async def api_chart_peak_power(request: web.Request):

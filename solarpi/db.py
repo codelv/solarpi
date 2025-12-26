@@ -66,7 +66,9 @@ class State:
 
     @classmethod
     async def load(cls, db):
-        async with db.execute("SELECT * FROM solar ORDER BY timestamp ASC LIMIT 1") as cursor:
+        async with db.execute(
+            "SELECT * FROM solar ORDER BY timestamp ASC LIMIT 1"
+        ) as cursor:
             async for row in cursor:
                 cls._instance = cls(*row)
 

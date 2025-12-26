@@ -1,7 +1,7 @@
-import os
 import asyncio
 import dataclasses
 import logging
+import os
 import subprocess
 import sys
 from time import time
@@ -12,7 +12,7 @@ from bleak import BleakClient, BleakError, BleakGATTCharacteristic, BleakScanner
 
 from . import config
 from .db import State
-from .utils import is_bt_addr, add_lecrc16, check_modbus_crc16, unpack_u16, unpack_u32
+from .utils import add_lecrc16, check_modbus_crc16, is_bt_addr, unpack_u16, unpack_u32
 
 log = logging.getLogger("solarpi")
 
@@ -28,7 +28,7 @@ SOLAR_CHARGER_DATA_CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 SOLAR_CHARGER_HOME_DATA = bytearray([0x01, 0x03, 0x01, 0x01, 0x00, 0x13, 0x54, 0x3B])
 BATTERY_MONITOR_REFRESH = bytearray([0xBB, 0x9A, 0xA9, 0x0C, 0xEE])
 
-#ITNCG3_UUID =
+# ITNCG3_UUID =
 
 ITNCG3_DATA_SERVICE_UUID = "00002b00-0000-1000-8000-00805f9b34fb"
 ITNCG3_DATA_NOTIFY_UUID = "00002b10-0000-1000-8000-00805f9b34fb"
@@ -41,6 +41,7 @@ SOLAR_CHARGER_ERROR_COUNT = 0
 BATTERY_MONITOR: Optional[BleakClient] = None
 SOLAR_CHARGER: Optional[BleakClient] = None
 SOLAR_CHARGER_TYPE: str = "helios"
+
 
 class BatteryMonitor:
 
@@ -91,23 +92,23 @@ class BatteryMonitor:
     IS_TEMP_IN_F = 0xF7
 
 
-
 @dataclasses.dataclass
 class SolarCharger:
     client: BleakClient
 
     async def after_connect(self):
-        """ Invoked after bluetooth connects. """
+        """Invoked after bluetooth connects."""
         raise NotImplementedError()
 
     async def refresh_data(self):
-        """ Invoked in a loop to refresh data. """
+        """Invoked in a loop to refresh data."""
         raise NotImplementedError()
 
 
 class HeliosSolarCharger(SolarCharger):
-    """ Reads data from the Helios M4860N and M48100F """
-    last_sent: Optional[time] = None
+    """Reads data from the Helios M4860N and M48100F"""
+
+    last_sent: Optional[float] = None
 
     async def after_connect(self):
         model_number = await self.client.read_gatt_char(
@@ -134,12 +135,7 @@ class HeliosSolarCharger(SolarCharger):
     def on_data(self, sender: BleakGATTCharacteristic, data: bytearray):
         log.debug(f"Helios solar charger data: {data.hex()}")
         state = State.instance()
-        if (
-            len(data) == 43
-            and data[0] == 0x01
-            and data[1] == 0x03
-            and data[2] == 0x26
-        ):
+        if len(data) == 43 and data[0] == 0x01 and data[1] == 0x03 and data[2] == 0x26:
             # Home data
             state.charger_voltage = int(data[5:7].hex(), base=16) / 10
             state.charger_current = int(data[7:9].hex(), base=16) / 100
@@ -150,7 +146,9 @@ class HeliosSolarCharger(SolarCharger):
             if pv := state.solar_panel_voltage:
                 # TODO: Can it actually read the PV input current
                 eff = 0.95
-                state.solar_panel_current = round(eff*state.charger_voltage/pv*state.charger_current, 2)
+                state.solar_panel_current = round(
+                    eff * state.charger_voltage / pv * state.charger_current, 2
+                )
             else:
                 state.solar_panel_current = 0
             # today_peak_power = int(packet[21:23].hex(), base=16) # This can be calculated
@@ -160,31 +158,34 @@ class HeliosSolarCharger(SolarCharger):
             state.update_timestamp()
         else:
             pass
-        self.last_sent = None # Clear to reset
+        self.last_sent = None  # Clear to reset
 
 
 class ITNCG3SolarCharger(SolarCharger):
-    """ Reads data from the EPEVER IT-NC-G3 models """
+    """Reads data from the EPEVER IT-NC-G3 models"""
+
     last_cmd: Optional[bytearray] = None
     pending_read: Optional[asyncio.Queue] = None
 
     # CMD Format is devId (u8), register, len (u8), crc (u16)
-    READ_DEV_ID = add_lecrc16(bytearray([0xf8, 0x45, 0x00, 0x01, 0x01, 0xf8]))
-    #READ_INFO = add_lecrc16(bytearray([0x01, 0xe3, ]))
+    READ_DEV_ID = add_lecrc16(bytearray([0xF8, 0x45, 0x00, 0x01, 0x01, 0xF8]))
+    # READ_INFO = add_lecrc16(bytearray([0x01, 0xe3, ]))
     READ_CHARGER_STATUS = add_lecrc16(bytearray([0x01, 0x04, 0x31, 0x17, 0x00, 0x04]))
     READ_BATTERY_STATUS = add_lecrc16(bytearray([0x01, 0x04, 0x31, 0x10, 0x00, 0x05]))
     READ_PV1 = add_lecrc16(bytearray([0x01, 0x04, 0x31, 0x00, 0x00, 0x04]))
     READ_PV2 = add_lecrc16(bytearray([0x01, 0x04, 0x31, 0x08, 0x00, 0x04]))
-    READ_PV_BUS = add_lecrc16(bytearray([0x01, 0x04, 0x31, 0x1e, 0x00, 0x04]))
-    READ_ACCUMULATED_POWER = add_lecrc16(bytearray([0x01, 0x04, 0x33, 0x01, 0x00, 0x12]))
-    #? = add_lecrc16(bytearray([0x01, 0x04, 0x32, 0x00, 0x00, 0x04]))
-    #? = add_lecrc16(bytearray([0x01, 0x04, 0x32, 0x05, 0x00, 0x01]))
-    #? = add_lecrc16(bytearray([0x01, 0x04, 0x32, 0x05, 0x00, 0x01]))
-    #? = add_lecrc16(bytearray([0x01, 0x04, 0x34, 0x00, 0x00, 0x04]))
-    #? = add_lecrc16(bytearray([0x01, 0x04, 0x34, 0x05, 0x00, 0x05]))
+    READ_PV_BUS = add_lecrc16(bytearray([0x01, 0x04, 0x31, 0x1E, 0x00, 0x04]))
+    READ_ACCUMULATED_POWER = add_lecrc16(
+        bytearray([0x01, 0x04, 0x33, 0x01, 0x00, 0x12])
+    )
+    # ? = add_lecrc16(bytearray([0x01, 0x04, 0x32, 0x00, 0x00, 0x04]))
+    # ? = add_lecrc16(bytearray([0x01, 0x04, 0x32, 0x05, 0x00, 0x01]))
+    # ? = add_lecrc16(bytearray([0x01, 0x04, 0x32, 0x05, 0x00, 0x01]))
+    # ? = add_lecrc16(bytearray([0x01, 0x04, 0x34, 0x00, 0x00, 0x04]))
+    # ? = add_lecrc16(bytearray([0x01, 0x04, 0x34, 0x05, 0x00, 0x05]))
 
     def read_reg_msg(self, dev_id: int, reg: int, address: int, size: int) -> bytearray:
-        """ Format is struct {
+        """Format is struct {
             dev_id: u8,
             register: u8,
             address: u16, // Big endian
@@ -192,18 +193,20 @@ class ITNCG3SolarCharger(SolarCharger):
             crc: u16, // Little endian
         }
         """
-        assert dev_id >=0 and dev_id <= 0xff
-        assert reg >=0 and reg <= 0xff
-        assert address >=0 and address <= 0xffff
-        assert size >=0 and size <= 0xffff
-        data = bytearray([
-            dev_id,
-            reg,
-            address >> 8 & 0xff,
-            address & 0xff,
-            size >> 8 & 0xff,
-            size & 0xff,
-        ])
+        assert dev_id >= 0 and dev_id <= 0xFF
+        assert reg >= 0 and reg <= 0xFF
+        assert address >= 0 and address <= 0xFFFF
+        assert size >= 0 and size <= 0xFFFF
+        data = bytearray(
+            [
+                dev_id,
+                reg,
+                address >> 8 & 0xFF,
+                address & 0xFF,
+                size >> 8 & 0xFF,
+                size & 0xFF,
+            ]
+        )
         return add_lecrc16(data)
 
     async def after_connect(self):
@@ -232,73 +235,80 @@ class ITNCG3SolarCharger(SolarCharger):
         state.update_timestamp()
 
     async def query_charger_status(self) -> Optional[tuple[float, float, float]]:
-        """ Request and decode charger current and temp readings """
+        """Request and decode charger current and temp readings"""
         resp = await self.send(self.READ_CHARGER_STATUS)
         # 01, 04, 08, 006d, 09c4, 0002, 0832, f290
-        if len(resp) != 13 or not check_modbus_crc16(resp):
+        if not resp or len(resp) != 13 or not check_modbus_crc16(resp):
             return None
-        charge_current = unpack_u16(resp[3:5])/100
-        controller_temp = unpack_u16(resp[5:7])/100
+        charge_current = unpack_u16(resp[3:5]) / 100
+        controller_temp = unpack_u16(resp[5:7]) / 100
         # TODO: what are 7 and 8
-        ambient_temp = unpack_u16(resp[9:11])/100
+        ambient_temp = unpack_u16(resp[9:11]) / 100
         return (charge_current, controller_temp, ambient_temp)
 
     async def query_battery_status(self) -> Optional[float]:
-        """ Request and decode temp readings """
+        """Request and decode temp readings"""
         resp = await self.send(self.READ_BATTERY_STATUS)
         # 01, 04, 0a, 05a5, 0000, 0000, 0000, 05a5, c511
-        if len(resp) != 15 or not check_modbus_crc16(resp):
+        if not resp or len(resp) != 15 or not check_modbus_crc16(resp):
             return None
-        bat_voltage = unpack_u16(resp[11:13])/100
+        bat_voltage = unpack_u16(resp[11:13]) / 100
         return bat_voltage
 
     async def query_pv1(self) -> Optional[tuple[float, float, float, float]]:
-        """ Request and decode temp readings """
+        """Request and decode temp readings"""
         resp = await self.send(self.READ_PV1)
         # 01, 04, 08, 0d04, 0000, 0000, 0000, a054
-        if len(resp) != 13 or not check_modbus_crc16(resp):
+        if not resp or len(resp) != 13 or not check_modbus_crc16(resp):
             return None
-        voltage = unpack_u16(resp[3:5])/100
-        current = unpack_u16(resp[5:7])/100
-        watts = unpack_u16(resp[7:9])/100
-        kwh = unpack_u16(resp[9:11])/100
+        voltage = unpack_u16(resp[3:5]) / 100
+        current = unpack_u16(resp[5:7]) / 100
+        watts = unpack_u16(resp[7:9]) / 100
+        kwh = unpack_u16(resp[9:11]) / 100
         return (voltage, current, watts, kwh)
 
     async def query_pv2(self) -> Optional[tuple[float, float, float, float]]:
-        """ Request and decode temp readings """
+        """Request and decode temp readings"""
         resp = await self.send(self.READ_PV2)
         # 01,04,08,0e2d,0043,0981,0000,4ef8
-        if len(resp) != 13 or not check_modbus_crc16(resp):
+        if not resp or len(resp) != 13 or not check_modbus_crc16(resp):
             return None
-        voltage = unpack_u16(resp[3:5])/100
-        current =  unpack_u16(resp[5:7])/100
-        watts = unpack_u16(resp[7:9])/100
-        kwh = unpack_u16(resp[9:11])/100
+        voltage = unpack_u16(resp[3:5]) / 100
+        current = unpack_u16(resp[5:7]) / 100
+        watts = unpack_u16(resp[7:9]) / 100
+        kwh = unpack_u16(resp[9:11]) / 100
         return (voltage, current, watts, kwh)
 
     async def query_pv_bus(self) -> Optional[tuple[float, float, float, float]]:
-        """ Request and decode temp readings """
+        """Request and decode temp readings"""
         resp = await self.send(self.READ_PV_BUS)
         # 01,04,08,0e2d,0043,0981,0000,4ef8
-        if len(resp) != 13 or not check_modbus_crc16(resp):
+        if not resp or len(resp) != 13 or not check_modbus_crc16(resp):
             return None
-        voltage = unpack_u16(resp[3:5])/100
-        current = unpack_u16(resp[5:7])/100
-        watts = unpack_u16(resp[7:9])/100
-        kwh = unpack_u16(resp[9:11])/100
+        voltage = unpack_u16(resp[3:5]) / 100
+        current = unpack_u16(resp[5:7]) / 100
+        watts = unpack_u16(resp[7:9]) / 100
+        kwh = unpack_u16(resp[9:11]) / 100
         return (voltage, current, watts, kwh)
 
-    async def query_accumulated_power(self) -> Optional[tuple[float, float, float, float]]:
-        """ Request stats on total power genration. """
+    async def query_accumulated_power(
+        self,
+    ) -> Optional[tuple[float, float, float, float]]:
+        """Request stats on total power genration."""
         resp = await self.send(self.READ_ACCUMULATED_POWER)
-        if len(resp) != 41 or not check_modbus_crc16(resp):
+        if not resp or len(resp) != 41 or not check_modbus_crc16(resp):
             return None
         # TODO: Unpack load output
-        daily_generation = unpack_u32(resp[21:25])/100
-        monthly_generation = unpack_u32(resp[25:29])/100
-        annual_generation = unpack_u32(resp[29:33])/100
-        total_generation = unpack_u32(resp[33:37])/100
-        return (daily_generation, monthly_generation, annual_generation, total_generation)
+        daily_generation = unpack_u32(resp[21:25]) / 100
+        monthly_generation = unpack_u32(resp[25:29]) / 100
+        annual_generation = unpack_u32(resp[29:33]) / 100
+        total_generation = unpack_u32(resp[33:37]) / 100
+        return (
+            daily_generation,
+            monthly_generation,
+            annual_generation,
+            total_generation,
+        )
 
     async def send_noreply(self, data: bytearray):
         self.last_cmd = data
@@ -405,9 +415,9 @@ async def scan_devices():
                 continue  # Both are connected ok. Nothing to do!
 
             if "SOLARPI_NOBM" in os.environ and SOLAR_CHARGER:
-                continue # Battery monitor disabled
+                continue  # Battery monitor disabled
             if "SOLARPI_NOSCC" in os.environ and BATTERY_MONITOR:
-                continue # Solar charger disabled
+                continue  # Solar charger disabled
 
             # Reload config in case addresses changed
             config.load()
@@ -502,7 +512,6 @@ def decode_battery_monitor_data(packet: bytearray):
                 state.battery_current = int(data.hex()) / 100
                 changed = True
             elif c == BatteryMonitor.TOTAL_CHARGE_ENERGY:
-                old = state.battery_total_charge_energy
                 state.battery_total_charge_energy = int(data.hex()) / 100
                 changed = True
             elif c == BatteryMonitor.TOTAL_DISCHARGE_ENERGY:
@@ -594,7 +603,6 @@ async def monitor_battery():
                     BATTERY_MONITOR_REFRESH,
                 )
 
-
             # Periodically poll to make sure it's not just sitting with no data coming in
             # DO NOT SEND immeidately or it screws up the connection
             last_sent = time()
@@ -631,11 +639,11 @@ async def monitor_battery():
             await asyncio.sleep(5)
 
 
-
 SOLAR_CHARGER_TYPES = {
     "helios": HeliosSolarCharger,
     "epever": ITNCG3SolarCharger,
 }
+
 
 async def monitor_charger():
     global ERROR_COUNT

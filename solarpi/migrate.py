@@ -1,8 +1,9 @@
+import argparse
+import asyncio
 import os
 import shutil
-import argparse
+
 import aiosqlite
-import asyncio
 
 from .db import State
 
@@ -15,10 +16,10 @@ async def migrate(path: str):
             async for row in cursor:
                 # cid, name, type, notnull, dfit_value, pk
                 columns.append(row[1])
-        assert "solar_panel_voltage" in columns # sanity check
+        assert "solar_panel_voltage" in columns  # sanity check
         if "solar_panel_current" in columns:
             print("Up to date")
-            return # Already migrated
+            return  # Already migrated
 
         async with aiosqlite.connect(new_db_path) as new_db:
             await new_db.execute(State.create_table_sql())
@@ -28,7 +29,13 @@ async def migrate(path: str):
                 async for row in cursor:
                     kwargs = {k: v for k, v in zip(columns, row)}
                     if pv := kwargs["solar_panel_voltage"]:
-                        solar_panel_current = round(0.95*kwargs["charger_voltage"]/pv*kwargs["charger_current"], 2)
+                        solar_panel_current = round(
+                            0.95
+                            * kwargs["charger_voltage"]
+                            / pv
+                            * kwargs["charger_current"],
+                            2,
+                        )
                     else:
                         solar_panel_current = 0
                     kwargs["solar_panel_current"] = solar_panel_current
@@ -49,7 +56,6 @@ async def main():
         raise ValueError("DB path does not exist")
     await migrate(args.db)
 
+
 if __name__ == "__main__":
     asyncio.run(main())
-
-

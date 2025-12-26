@@ -37,6 +37,6 @@ jobs:
             isort solarpi --check --diff
             black solarpi --check --diff
             mypy solarpi --ignore-missing-imports
-            flake8 --ignore=E501,W503,E203 solarpi
+            flake8 --ignore=E501,W503,E226,E203 solarpi
 
 

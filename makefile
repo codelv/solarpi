@@ -6,7 +6,7 @@ isort:
 typecheck:
 	mypy solarpi --ignore-missing-imports
 lintcheck:
-	flake8 --ignore=E501,E203,W503  solarpi
+	flake8 --ignore=E501,E203,E226,W503  solarpi
 reformat:
 	black solarpi
 test:
