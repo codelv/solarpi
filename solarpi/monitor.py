@@ -502,6 +502,7 @@ def decode_battery_monitor_data(packet: bytearray):
                 state.battery_current = int(data.hex()) / 100
                 changed = True
             elif c == BatteryMonitor.TOTAL_CHARGE_ENERGY:
+                old = state.battery_total_charge_energy
                 state.battery_total_charge_energy = int(data.hex()) / 100
                 changed = True
             elif c == BatteryMonitor.TOTAL_DISCHARGE_ENERGY:
@@ -587,6 +588,12 @@ async def monitor_battery():
                 await BATTERY_MONITOR.start_notify(
                     BATTERY_MONITOR_DATA_CHARACTERISTIC_UUID, on_battery_monitor_data
                 )
+                await asyncio.sleep(0.5)
+                await BATTERY_MONITOR.write_gatt_char(
+                    BATTERY_MONITOR_CONF_CHARACTERISTIC_UUID,
+                    BATTERY_MONITOR_REFRESH,
+                )
+
 
             # Periodically poll to make sure it's not just sitting with no data coming in
             # DO NOT SEND immeidately or it screws up the connection
@@ -664,8 +671,8 @@ async def monitor_charger():
 
 
 async def snapshot_task():
-    last_timestamp = 0
     state = State.instance()
+    last_timestamp = state.timestamp
     while True:
         await asyncio.sleep(1)
         try:
@@ -694,6 +701,9 @@ async def init_db():
     await DB.execute(cmd)
     await DB.commit()
     log.info("Db initalized!")
+
+    # Load previous state if available
+    await State.load(DB)
 
 
 async def fini_db():

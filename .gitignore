@@ -2,6 +2,8 @@ __pycache__
 *.pyc
 *.db
 *.log
+*.egg-info
 build/
 dist/
+backup/
 

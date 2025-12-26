@@ -18,15 +18,14 @@ class State:
     battery_capacity: ClassVar[float] = 600
     battery_total_charge_energy: float = 0
     battery_total_discharge_energy: float = 0
-
-    solar_panel_voltage: float = 0
-    solar_panel_current: float = 0
     charger_voltage: float = 0
     charger_current: float = 0
     charger_temp: float = 0
     charger_total_energy: float = 0
     charger_status: int = 0
     room_temp: float = 0
+    solar_panel_voltage: float = 0
+    solar_panel_current: float = 0
 
     _instance: ClassVar[Optional["State"]] = None
 
@@ -64,6 +63,12 @@ class State:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    @classmethod
+    async def load(cls, db):
+        async with db.execute("SELECT * FROM solar ORDER BY timestamp ASC LIMIT 1") as cursor:
+            async for row in cursor:
+                cls._instance = cls(*row)
 
     def columns(self):
         return tuple(f.name for f in dataclasses.fields(self.__class__))
